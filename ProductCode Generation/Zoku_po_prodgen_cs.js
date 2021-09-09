@@ -25,8 +25,7 @@ define(["N/record", "N/search", "N/ui/dialog"], /**
     var url = new URL(window.location.href);
     var internalid = url.searchParams.get("id");
     var status;
-    var retailLineId = new Array();
-    var sampleLineId = new Array();
+    var itemLineId = new Array();
     var counter = 0;
     var options = {
       title: "Warning",
@@ -88,14 +87,10 @@ define(["N/record", "N/search", "N/ui/dialog"], /**
         });
         var searchResultCount = transactionSearchObj.runPaged().count;
         transactionSearchObj.run().each(function (result) {
-          if (result.getValue({ name: "formulatext" }) == "Retail")
-            retailLineId.push(result.getValue({ name: "line" }));
-          else if (result.getValue({ name: "formulatext" }) == "Sample")
-            sampleLineId.push(result.getValue({ name: "line" }));
+          itemLineId.push(result.getValue({ name: "line" }));
           return true;
         });
-        console.log("retailLineId results", retailLineId);
-        console.log("sampleLineId results", sampleLineId);
+        console.log("itemLineId", itemLineId);
 
         //Check if any of the items in the transaction fit the criteria
         if (searchResultCount) {
@@ -107,21 +102,12 @@ define(["N/record", "N/search", "N/ui/dialog"], /**
           });
           var lineCount = po.getLineCount({ sublistId: "item" });
           var lineQuantity = 0;
-          var retailLine = -1;
-          var sampleLine = -1;
+          var itemLine = -1;
 
           //Find the line where the items would have the Product Codes
           for (var x = 0; x < lineCount; x++) {
             //Separated these to variables to make the if-statements easier to read
-            retailLine = retailLineId.indexOf(
-              po.getSublistValue({
-                sublistId: "item",
-                fieldId: "line",
-                line: x,
-              })
-            );
-
-            sampleLine = sampleLineId.indexOf(
+            itemLine = itemLineId.indexOf(
               po.getSublistValue({
                 sublistId: "item",
                 fieldId: "line",
@@ -130,8 +116,7 @@ define(["N/record", "N/search", "N/ui/dialog"], /**
             );
             /************END of var assignment**************/
 
-            if (retailLine > -1) {
-              //Check if the current line is for retail. This has a different format of serial number, hence the separation
+            if (itemLine > -1) {
               po.selectLine({ sublistId: "item", line: x });
               lineQuantity = po.getCurrentSublistValue({
                 sublistId: "item",
@@ -143,26 +128,45 @@ define(["N/record", "N/search", "N/ui/dialog"], /**
               });
               //Add the generated Product Codes to the subrecord
               for (var y = 0; y < lineQuantity; y++) {
+                //Get the product information (Item ID, running number, product category)
+                var productDetails = getProductDetails(
+                  po.getSublistValue({
+                    sublistId: "item",
+                    fieldId: "item",
+                    line: x,
+                  })
+                );
+                console.log("productDetails", productDetails);
+
+                var generatedCodes = productCodeGeneration(
+                  productDetails,
+                  po.getSublistValue({
+                    sublistId: "item",
+                    fieldId: "item",
+                    line: x,
+                  })
+                );
+
                 invDetail.selectNewLine({ sublistId: "inventoryassignment" });
                 invDetail.setCurrentSublistValue({
                   sublistId: "inventoryassignment",
                   fieldId: "receiptinventorynumber",
-                  value: "ABC" + y, //Generate the Product Code here
+                  value: generatedCodes[0],
                 });
+
+                console.log("short code", generatedCodes[0]);
+                console.log("long code", generatedCodes[1]);
                 invDetail.commitLine({ sublistId: "inventoryassignment" });
               }
               po.commitLine({ sublistId: "item" });
-            } else if (sampleLine > -1) {
-              //Check if the current line is for sample
             }
 
             //Reset the field values
-            retailLine = -1;
-            sampleLine = -1;
+            itemLine = -1;
           }
 
           //Save the record
-          po.save();
+          //po.save();
         } else {
           status = "noresult";
         }
@@ -175,6 +179,15 @@ define(["N/record", "N/search", "N/ui/dialog"], /**
       postProcessing(status);
     }
 
+    /*
+      Returns a message to the user notifying them what happened to their button click, after the product code generation is selected
+
+      params:
+      result - result code to identify what happened
+
+      returns:
+      none. dialog response displayed.
+    */
     function postProcessing(result) {
       console.log("Post processing", result);
       if (result == "noresult") {
@@ -193,6 +206,93 @@ define(["N/record", "N/search", "N/ui/dialog"], /**
 
     dialog.confirm(options).then(success);
   }
+
+  /*
+    Does a lookup search for the item details required for the productCode generation
+
+    params:
+    internalId - internal ID of the item record to be looked-up
+
+    returns:
+    itemid - text
+    custitem_zoku_runningnumber - text
+    custitem_zoku_prodcodetype - list type
+  */
+  function getProductDetails(internalId) {
+    return search.lookupFields({
+      type: search.Type.SERIALIZED_INVENTORY_ITEM,
+      id: internalId,
+      columns: [
+        "itemid",
+        "custitem_zoku_runningnumber",
+        "custitem_zoku_prodcodetype",
+      ],
+    });
+  }
+
+  /*
+    params:
+    runningNumber - the running number of the item being referenced
+
+    returns:
+    pad.substring - the text that would be stored for the item
+  */
+  function formatRunningSuffix(runningNumber, productType) {
+    var str = "" + runningNumber;
+    var pad = "0000";
+
+    //TODO - The 'R' is removed after 999. Needs fixing in the future. Will leave it for now as is,
+    if (productType == "1") {
+      pad = "R000";
+    }
+
+    return pad.substring(0, pad.length - str.length) + str;
+  }
+
+  /*
+    params:
+    productDetails - lookup results of the item record
+    itemId - item internal ID
+
+    returns:
+    productCode - text
+  */
+  function productCodeGeneration(productDetails, itemId) {
+    var shortProductCode = "";
+    var longProductCode = "";
+    var productRunning = productDetails.custitem_zoku_runningnumber;
+    var productType = productDetails["custitem_zoku_prodcodetype"][0]["value"]; //Either 1 = 'Retail' or 2 = 'Sample'
+    console.log("productType", productType);
+
+    shortProductCode += productDetails.itemid;
+
+    //Check if there's a running number existing on the item
+    if (productRunning === "") {
+      shortProductCode += "-" + formatRunningSuffix(0, productType);
+      productRunning = 1;
+    } else {
+      productRunning++;
+      shortProductCode +=
+        "-" + formatRunningSuffix(productRunning, productType);
+    }
+
+    //Save the item record with the new running value
+    record.submitFields({
+      type: record.Type.SERIALIZED_INVENTORY_ITEM,
+      id: itemId,
+      values: {
+        custitem_zoku_runningnumber: productRunning,
+      },
+      options: {
+        ignoreMandatoryFields: true,
+      },
+    });
+
+    //Return the short product code
+    //return shortProductCode;
+    return [shortProductCode, "test"];
+  }
+
   return {
     pageInit: pageInit,
     generateFlow: generateFlow,
