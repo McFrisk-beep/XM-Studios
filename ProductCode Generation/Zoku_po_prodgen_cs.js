@@ -26,7 +26,6 @@ define(["N/record", "N/search", "N/ui/dialog"], /**
     var internalid = url.searchParams.get("id");
     var status;
     var itemLineId = new Array();
-    var counter = 0;
     var options = {
       title: "Warning",
       message:
@@ -114,7 +113,6 @@ define(["N/record", "N/search", "N/ui/dialog"], /**
                 line: x,
               })
             );
-            /************END of var assignment**************/
 
             if (itemLine > -1) {
               po.selectLine({ sublistId: "item", line: x });
@@ -167,6 +165,7 @@ define(["N/record", "N/search", "N/ui/dialog"], /**
 
           //Save the record
           //po.save();
+          status = "successful";
         } else {
           status = "noresult";
         }
@@ -201,6 +200,12 @@ define(["N/record", "N/search", "N/ui/dialog"], /**
           title: "Notice",
           message: "Cancelled operation. Product codes are not generated.",
         });
+      } else if (result == "successful") {
+        dialog.alert({
+          title: "Record Saved",
+          message:
+            "The Purchase Order has been successfully updated. Product Codes successfully generated.",
+        });
       }
     }
 
@@ -231,6 +236,8 @@ define(["N/record", "N/search", "N/ui/dialog"], /**
   }
 
   /*
+    Generates the Running suffix to be returned for part of the productCode generation
+
     params:
     runningNumber - the running number of the item being referenced
 
@@ -242,7 +249,7 @@ define(["N/record", "N/search", "N/ui/dialog"], /**
     var pad = "0000";
 
     //TODO - The 'R' is removed after 999. Needs fixing in the future. Will leave it for now as is,
-    if (productType == "1") {
+    if (productType == "2") {
       pad = "R000";
     }
 
@@ -250,6 +257,8 @@ define(["N/record", "N/search", "N/ui/dialog"], /**
   }
 
   /*
+    Generates the Product Code to be saved for the Purchase order and the Custom Record
+
     params:
     productDetails - lookup results of the item record
     itemId - item internal ID
@@ -265,15 +274,20 @@ define(["N/record", "N/search", "N/ui/dialog"], /**
     console.log("productType", productType);
 
     shortProductCode += productDetails.itemid;
+    longProductCode += productDetails.itemid;
+    longProductCode +=
+      "-" + randomTextGeneration() + "-" + randomTextGeneration();
 
     //Check if there's a running number existing on the item
     if (productRunning === "") {
       shortProductCode += "-" + formatRunningSuffix(0, productType);
+      longProductCode += "-" + formatRunningSuffix(0, productType);
       productRunning = 1;
     } else {
       productRunning++;
       shortProductCode +=
         "-" + formatRunningSuffix(productRunning, productType);
+      longProductCode += "-" + formatRunningSuffix(productRunning, productType);
     }
 
     //Save the item record with the new running value
@@ -289,8 +303,24 @@ define(["N/record", "N/search", "N/ui/dialog"], /**
     });
 
     //Return the short product code
-    //return shortProductCode;
-    return [shortProductCode, "test"];
+    return [shortProductCode, longProductCode];
+  }
+
+  /*
+    Generates a random alphanumeric string (a-z, A-Z, 0-9)
+
+    params: none
+    returns:
+    result - the text used for population of the long version of the product code
+  */
+  function randomTextGeneration() {
+    var length = 4;
+    var chars =
+      "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    var result = "";
+    for (var i = length; i > 0; --i)
+      result += chars[Math.round(Math.random() * (chars.length - 1))];
+    return result.toUpperCase();
   }
 
   return {
