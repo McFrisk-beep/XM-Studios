@@ -115,48 +115,53 @@ define([
     try {
       if (scriptContext.type == scriptContext.UserEventType.EDIT) {
         var poRec = scriptContext.newRecord;
-        var searchProducts = new Array();
+        var itemLineId = new Array();
+        var itemLine = -1;
 
         //Check if there are connected Product codes generated for this transaction
-        var productCodeSearch = search.create({
-          type: "customrecord_zoku_prodcode_custrec",
+        var transactionSearchObj = search.create({
+          type: "transaction",
           filters: [
+            ["internalid", "anyof", poRec.getValue({ fieldId: "id" })],
+            "AND",
+            ["mainline", "is", "F"],
+            "AND",
+            ["item.type", "anyof", "InvtPart"],
+            "AND",
+            ["item.isserialitem", "is", "T"],
+            "AND",
             [
-              "custrecord_zoku_source",
-              "anyof",
-              poRec.getValue({ fieldId: "id" }),
+              "formulatext: {item.custitem_zoku_prodcodetype}",
+              "isnotempty",
+              "",
             ],
           ],
-          columns: [
-            search.createColumn({
-              name: "custrecord_zoku_item",
-              summary: "GROUP",
-              label: "Item",
-            }),
-            search.createColumn({
-              name: "custrecord_zoku_serialnumber",
-              summary: "COUNT",
-              label: "Serial Number",
-            }),
-          ],
+          columns: [search.createColumn({ name: "line", label: "Line ID" })],
         });
-        productCodeSearch.run().each(function (result) {
-          searchProducts.push([
-            result.getValue({
-              name: "custrecord_zoku_item",
-              summary: "GROUP",
-            }),
-            result.getValue({
-              name: "custrecord_zoku_serialnumber",
-              summary: "COUNT",
-            }),
-          ]);
+        var searchResultCount = transactionSearchObj.runPaged().count;
+        transactionSearchObj.run().each(function (result) {
+          itemLineId.push(result.getValue({ name: "line" }));
           return true;
         });
 
-        //This means there are product codes generated for this one. Match and compare if they are equal
-        if (searchProducts.length > 0) {
-          //TODO
+        //If there's lines that fit the criteria, proceed with checking to see if there's created Product Codes
+        if (searchResultCount > 0) {
+          var lineCount = poRec.getLineCount({ sublistId: "item" });
+          for (var x = 0; x < lineCount; x++) {
+            //Get the index of the line referenced from the search
+            itemLine = itemLineId.indexOf(
+              po.getSublistValue({
+                sublistId: "item",
+                fieldId: "line",
+                line: x,
+              })
+            );
+
+            //If it's greater than -1, meaning the line exists
+            if (itemLine > -1) {
+              //TODO
+            }
+          }
         }
       }
     } catch (e) {

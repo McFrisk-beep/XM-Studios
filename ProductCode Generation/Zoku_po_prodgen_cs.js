@@ -97,33 +97,33 @@ define(["N/record", "N/search", "N/ui/dialog"], /**
               });
 
               //Search if the product code was already generated previously.
-              var zokuProductCodeSearch = search.create({
-                type: "customrecord_zoku_prodcode_custrec",
-                filters: [
-                  ["custrecord_zoku_item", "anyof", "51"],
-                  "AND",
-                  ["custrecord_zoku_source", "anyof", "355"],
-                ],
-                columns: [
-                  search.createColumn({
-                    name: "id",
-                    sort: search.Sort.ASC,
-                    label: "ID",
-                  }),
-                ],
-              });
-              var productCodeMatches = zokuProductCodeSearch.runPaged().count;
+              // var zokuProductCodeSearch = search.create({
+              //   type: "customrecord_zoku_prodcode_custrec",
+              //   filters: [
+              //     ["custrecord_zoku_item", "anyof", "51"],
+              //     "AND",
+              //     ["custrecord_zoku_source", "anyof", "355"],
+              //   ],
+              //   columns: [
+              //     search.createColumn({
+              //       name: "id",
+              //       sort: search.Sort.ASC,
+              //       label: "ID",
+              //     }),
+              //   ],
+              // });
+              // var productCodeMatches = zokuProductCodeSearch.runPaged().count;
 
-              if (productCodeMatches > 0) {
-                if (productCodeMatches > lineQuantity) {
-                  //If the productCodeMatces has more items than the current line quantity, DECREASE the custom record count
-                } else if (productCodeMatches < lineQuantity) {
-                  //If the productCodeMatches has less items than the current line quantity, INCREASE the custom record count.
-                  //Proceed with the creation of the custom record
-                } else if (productCodeMatches == lineQuantity) {
-                  //If both the productCodeMatches and the current line quantity is equal. DO NOTHING.
-                }
-              }
+              // if (productCodeMatches > 0) {
+              //   if (productCodeMatches > lineQuantity) {
+              //     //If the productCodeMatces has more items than the current line quantity, DECREASE the custom record count
+              //   } else if (productCodeMatches < lineQuantity) {
+              //     //If the productCodeMatches has less items than the current line quantity, INCREASE the custom record count.
+              //     //Proceed with the creation of the custom record
+              //   } else if (productCodeMatches == lineQuantity) {
+              //     //If both the productCodeMatches and the current line quantity is equal. DO NOTHING.
+              //   }
+              // }
 
               var invDetail = po.getCurrentSublistSubrecord({
                 sublistId: "item",
@@ -160,16 +160,16 @@ define(["N/record", "N/search", "N/ui/dialog"], /**
                 invDetail.commitLine({ sublistId: "inventoryassignment" });
 
                 //If there's no problem there, proceed with the creation of the custom record
-                createCustomRecord(
-                  currentLineItem,
-                  internalid,
-                  generatedCodes[0],
-                  generatedCodes[1],
-                  po.getValue({
-                    fieldId: "custbody_altas_anz_so_po_notes",
-                  }),
-                  "NOTES"
-                );
+                // createCustomRecord(
+                //   currentLineItem,
+                //   internalid,
+                //   generatedCodes[0],
+                //   generatedCodes[1],
+                //   po.getValue({
+                //     fieldId: "custbody_altas_anz_so_po_notes",
+                //   }),
+                //   "NOTES"
+                // );
               }
               //Commit the item line
               po.commitLine({ sublistId: "item" });
@@ -180,7 +180,7 @@ define(["N/record", "N/search", "N/ui/dialog"], /**
           }
 
           //Save the record
-          po.save();
+          // po.save();
           status = "successful";
         } else {
           status = "noresult";
