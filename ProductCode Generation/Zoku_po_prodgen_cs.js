@@ -55,34 +55,7 @@ define(["N/record", "N/search", "N/ui/dialog"], /**
               "",
             ],
           ],
-          columns: [
-            search.createColumn({
-              name: "tranid",
-              sort: search.Sort.ASC,
-              label: "Document Number",
-            }),
-            search.createColumn({
-              name: "transactionnumber",
-              label: "Transaction Number",
-            }),
-            search.createColumn({
-              name: "otherrefnum",
-              label: "PO/Check Number",
-            }),
-            search.createColumn({ name: "statusref", label: "Status" }),
-            search.createColumn({ name: "item", label: "Item" }),
-            search.createColumn({
-              name: "type",
-              join: "item",
-              label: "Type",
-            }),
-            search.createColumn({ name: "line", label: "Line ID" }),
-            search.createColumn({
-              name: "formulatext",
-              formula: "{item.custitem_zoku_prodcodetype}",
-              label: "Formula (Text)",
-            }),
-          ],
+          columns: [search.createColumn({ name: "line", label: "Line ID" })],
         });
         var searchResultCount = transactionSearchObj.runPaged().count;
         transactionSearchObj.run().each(function (result) {
@@ -105,7 +78,7 @@ define(["N/record", "N/search", "N/ui/dialog"], /**
 
           //Find the line where the items would have the Product Codes
           for (var x = 0; x < lineCount; x++) {
-            //Separated these to variables to make the if-statements easier to read
+            //Get the index of the serialized item
             itemLine = itemLineId.indexOf(
               po.getSublistValue({
                 sublistId: "item",
@@ -114,12 +87,44 @@ define(["N/record", "N/search", "N/ui/dialog"], /**
               })
             );
 
+            //-1 means that this line is not it. If it's greater than -1, there is a result, therefore this matches what we're looking for
             if (itemLine > -1) {
+              //Get item line quantity
               po.selectLine({ sublistId: "item", line: x });
               lineQuantity = po.getCurrentSublistValue({
                 sublistId: "item",
                 fieldId: "quantity",
               });
+
+              //Search if the product code was already generated previously.
+              var zokuProductCodeSearch = search.create({
+                type: "customrecord_zoku_prodcode_custrec",
+                filters: [
+                  ["custrecord_zoku_item", "anyof", "51"],
+                  "AND",
+                  ["custrecord_zoku_source", "anyof", "355"],
+                ],
+                columns: [
+                  search.createColumn({
+                    name: "id",
+                    sort: search.Sort.ASC,
+                    label: "ID",
+                  }),
+                ],
+              });
+              var productCodeMatches = zokuProductCodeSearch.runPaged().count;
+
+              if (productCodeMatches > 0) {
+                if (productCodeMatches > lineQuantity) {
+                  //If the productCodeMatces has more items than the current line quantity, DECREASE the custom record count
+                } else if (productCodeMatches < lineQuantity) {
+                  //If the productCodeMatches has less items than the current line quantity, INCREASE the custom record count.
+                  //Proceed with the creation of the custom record
+                } else if (productCodeMatches == lineQuantity) {
+                  //If both the productCodeMatches and the current line quantity is equal. DO NOTHING.
+                }
+              }
+
               var invDetail = po.getCurrentSublistSubrecord({
                 sublistId: "item",
                 fieldId: "inventorydetail",
@@ -127,24 +132,21 @@ define(["N/record", "N/search", "N/ui/dialog"], /**
               //Add the generated Product Codes to the subrecord
               for (var y = 0; y < lineQuantity; y++) {
                 //Get the product information (Item ID, running number, product category)
-                var productDetails = getProductDetails(
-                  po.getSublistValue({
-                    sublistId: "item",
-                    fieldId: "item",
-                    line: x,
-                  })
-                );
+                var currentLineItem = po.getSublistValue({
+                  sublistId: "item",
+                  fieldId: "item",
+                  line: x,
+                });
+                var productDetails = getProductDetails(currentLineItem);
                 console.log("productDetails", productDetails);
 
+                //Get the product code generation
                 var generatedCodes = productCodeGeneration(
                   productDetails,
-                  po.getSublistValue({
-                    sublistId: "item",
-                    fieldId: "item",
-                    line: x,
-                  })
+                  currentLineItem
                 );
 
+                //Add the product codes to the inventory detail subrecord
                 invDetail.selectNewLine({ sublistId: "inventoryassignment" });
                 invDetail.setCurrentSublistValue({
                   sublistId: "inventoryassignment",
@@ -154,8 +156,22 @@ define(["N/record", "N/search", "N/ui/dialog"], /**
 
                 console.log("short code", generatedCodes[0]);
                 console.log("long code", generatedCodes[1]);
+                //Commit the subrecord
                 invDetail.commitLine({ sublistId: "inventoryassignment" });
+
+                //If there's no problem there, proceed with the creation of the custom record
+                createCustomRecord(
+                  currentLineItem,
+                  internalid,
+                  generatedCodes[0],
+                  generatedCodes[1],
+                  po.getValue({
+                    fieldId: "custbody_altas_anz_so_po_notes",
+                  }),
+                  "NOTES"
+                );
               }
+              //Commit the item line
               po.commitLine({ sublistId: "item" });
             }
 
@@ -164,7 +180,7 @@ define(["N/record", "N/search", "N/ui/dialog"], /**
           }
 
           //Save the record
-          //po.save();
+          po.save();
           status = "successful";
         } else {
           status = "noresult";
@@ -321,6 +337,56 @@ define(["N/record", "N/search", "N/ui/dialog"], /**
     for (var i = length; i > 0; --i)
       result += chars[Math.round(Math.random() * (chars.length - 1))];
     return result.toUpperCase();
+  }
+
+  /*
+    Creates the custom record storing the generated fields from the item subrecord
+
+    params:
+    currentLineItem - the current line item
+    internalid - internal id of the item
+    shortCode - the serial number
+    longCode - the product number
+    fieldNotes - notes from the purchase order
+    member - the member type of the customer
+  */
+  function createCustomRecord(
+    currentLineItem,
+    internalid,
+    shortCode,
+    longCode,
+    fieldNotes,
+    member
+  ) {
+    var custRecord = record.create({
+      type: "customrecord_zoku_prodcode_custrec",
+    });
+    custRecord.setValue({
+      fieldId: "custrecord_zoku_item",
+      value: currentLineItem,
+    });
+    custRecord.setValue({
+      fieldId: "custrecord_zoku_source",
+      value: internalid,
+    });
+    custRecord.setValue({
+      fieldId: "custrecord_zoku_serialnumber",
+      value: shortCode,
+    });
+    custRecord.setValue({
+      fieldId: "custrecord_zoku_prodcode",
+      value: longCode,
+    });
+    custRecord.setValue({
+      fieldId: "custrecord_zoku_notes",
+      value: fieldNotes,
+    });
+    custRecord.setValue({
+      fieldId: "custrecord_zoku_member",
+      value: member,
+    });
+    custRecord.save();
+    console.log("Custom record has been saved!");
   }
 
   return {
