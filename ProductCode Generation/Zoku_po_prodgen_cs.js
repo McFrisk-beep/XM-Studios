@@ -160,16 +160,21 @@ define(["N/record", "N/search", "N/ui/dialog"], /**
                 invDetail.commitLine({ sublistId: "inventoryassignment" });
 
                 //If there's no problem there, proceed with the creation of the custom record
-                // createCustomRecord(
-                //   currentLineItem,
-                //   internalid,
-                //   generatedCodes[0],
-                //   generatedCodes[1],
-                //   po.getValue({
-                //     fieldId: "custbody_altas_anz_so_po_notes",
-                //   }),
-                //   "NOTES"
-                // );
+                createCustomRecord(
+                  currentLineItem,
+                  internalid,
+                  generatedCodes[0],
+                  generatedCodes[1],
+                  po.getValue({
+                    fieldId: "custbody_altas_anz_so_po_notes",
+                  }),
+                  "NOTES",
+                  po.getSublistValue({
+                    sublistId: "item",
+                    fieldId: "line",
+                    line: x,
+                  })
+                );
               }
               //Commit the item line
               po.commitLine({ sublistId: "item" });
@@ -180,7 +185,8 @@ define(["N/record", "N/search", "N/ui/dialog"], /**
           }
 
           //Save the record
-          // po.save();
+          po.setValue({ fieldId: "custbody_zoku_codegen_status", value: "3" }); //Set the status to '3', or 'Generated'
+          po.save();
           status = "successful";
         } else {
           status = "noresult";
@@ -220,8 +226,10 @@ define(["N/record", "N/search", "N/ui/dialog"], /**
         dialog.alert({
           title: "Record Saved",
           message:
-            "The Purchase Order has been successfully updated. Product Codes successfully generated.",
+            //"The Purchase Order has been successfully updated. Product Codes successfully generated.",
+            "SUCCESS! Reloading page.",
         });
+        location.reload();
       }
     }
 
@@ -356,7 +364,8 @@ define(["N/record", "N/search", "N/ui/dialog"], /**
     shortCode,
     longCode,
     fieldNotes,
-    member
+    member,
+    lineId
   ) {
     var custRecord = record.create({
       type: "customrecord_zoku_prodcode_custrec",
@@ -384,6 +393,10 @@ define(["N/record", "N/search", "N/ui/dialog"], /**
     custRecord.setValue({
       fieldId: "custrecord_zoku_member",
       value: member,
+    });
+    custRecord.setValue({
+      fieldId: "custrecord_zoku_lineid",
+      value: lineId,
     });
     custRecord.save();
     console.log("Custom record has been saved!");
