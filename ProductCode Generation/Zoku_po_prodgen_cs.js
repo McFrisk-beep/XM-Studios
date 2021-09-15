@@ -3,11 +3,17 @@
  * @NScriptType ClientScript
  * @NModuleScope SameAccount
  */
-define(["N/record", "N/search", "N/ui/dialog"], /**
+define([
+  "N/record",
+  "N/search",
+  "N/ui/dialog",
+  "./sweetalert2.all.min.js",
+  "N/runtime",
+], /**
  * @param {record} record
  * @param {search} search
  * @param {dialog} dialog
- */ function (record, search, dialog) {
+ */ function (record, search, dialog, Swal, runtime) {
   /**
    * Function to be executed after page is initialized.
    *
@@ -24,15 +30,78 @@ define(["N/record", "N/search", "N/ui/dialog"], /**
   function generateFlow() {
     var url = new URL(window.location.href);
     var internalid = url.searchParams.get("id");
-    var status;
     var itemLineId = new Array();
-    var options = {
-      title: "Warning",
-      message:
-        "Once confirmed, this will generate the Product Codes for all applicable items in the transaction.\nPlease make sure that there are no further changes to the transaction before proceeding.\nThe screen may freeze while the Product codes are being generated. PLEASE DO NOT CLOSE THE WINDOW UNTIL THE CONFIRMATION DIALOG APPEARS. \nConfirm Product Code generation?",
-    };
 
-    function success(result) {
+    //Display confirmation dialog
+    Swal.fire({
+      title: "Are you sure?",
+      html:
+        "<p>Once confirmed, this will generate the Serial Codes for all applicable items in the transaction.</p>" +
+        "<p><br></p>" +
+        "<p>Please make sure that there are no further changes to the transaction before proceeding.</p>" +
+        "<p><br></p>" +
+        "<p>The screen may freeze while the Serial Codes are being generated.&nbsp;</p>" +
+        "<p><br></p>" +
+        "<p><b>PLEASE DO NOT CLOSE THE WINDOW</b> until the confirmation dialog appears.</p>" +
+        "<p><br></p>" +
+        "<p>Confirm Serial Code generation?</p>",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonColor: "#3085d6",
+      cancelButtonColor: "#d33",
+      confirmButtonText: "Yes, generate the Serial Codes!",
+      willClose: Swal.showLoading(),
+    }).then(loadingDialog);
+
+    //Display loading dialog
+    function loadingDialog(result) {
+      if (result.isConfirmed) {
+        Swal.fire({
+          title: "Processing Serial Codes!",
+          // icon: "info",
+          html:
+            "<head><meta name='viewport' content='width=device-width, initial-scale=1'><style>.loader{border:16px solid #f3f3f3;border-radius:50%;border-top:16px solid #3498db;width:60px;height:60px;-webkit-animation:spin 2s linear infinite;animation:spin 2s linear infinite;margin-left:auto;margin-right:auto}@-webkit-keyframes spin{0%{-webkit-transform:rotate(0deg)}100%{-webkit-transform:rotate(360deg)}}@keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}</style></head><body><div class='loader'></div></body><br/><br/><b>Do not close this window!</br>" +
+            "Please wait. . .",
+          allowOutsideClick: false,
+          allowEscapeKey: false,
+          showCancelButton: false,
+          showConfirmButton: false,
+          timer: 100,
+          // timerProgressBar: true,
+        }).then(proceedProcessing);
+      } else {
+        Swal.fire(
+          "Cancelled!",
+          "Operation has been cancelled. No Serial Codes have been generated.",
+          "info"
+        );
+      }
+    }
+
+    //Process the record in the background
+    function proceedProcessing(result) {
+      Swal.fire({
+        title: "Processing completed!",
+        icon: "success",
+        html: "Serial Codes have been generated! Click 'OK' to reload the page.",
+        preConfirm: processCodes(true),
+        allowOutsideClick: false,
+        allowEscapeKey: false,
+        showCancelButton: false,
+      }).then(onDismiss);
+
+      function onDismiss() {
+        console.log("Finished processing.");
+        location.reload();
+      }
+    }
+
+    //TODO
+    //Manage the script governance for this record. Can only handle probably 30-lines max?
+    //Need to have a back-up plan like a map/reduce for longer records
+    function processCodes(result) {
+      Swal.showLoading();
+      //function success(result) {
       if (result) {
         //User confirms. Proceed with code generation
         console.log("User proceeded.", result);
@@ -72,168 +141,258 @@ define(["N/record", "N/search", "N/ui/dialog"], /**
             id: internalid,
             isDynamic: true,
           });
+          var poStatus = po.getValue({
+            fieldId: "custbody_zoku_codegen_status",
+          });
           var lineCount = po.getLineCount({ sublistId: "item" });
           var lineQuantity = 0;
           var itemLine = -1;
 
-          //Find the line where the items would have the Product Codes
-          for (var x = 0; x < lineCount; x++) {
-            //Get the index of the serialized item
-            itemLine = itemLineId.indexOf(
-              po.getSublistValue({
-                sublistId: "item",
-                fieldId: "line",
-                line: x,
-              })
-            );
-
-            //-1 means that this line is not it. If it's greater than -1, there is a result, therefore this matches what we're looking for
-            if (itemLine > -1) {
-              //Get item line quantity
-              po.selectLine({ sublistId: "item", line: x });
-              lineQuantity = po.getCurrentSublistValue({
-                sublistId: "item",
-                fieldId: "quantity",
-              });
-
-              //Search if the product code was already generated previously.
-              // var zokuProductCodeSearch = search.create({
-              //   type: "customrecord_zoku_prodcode_custrec",
-              //   filters: [
-              //     ["custrecord_zoku_item", "anyof", "51"],
-              //     "AND",
-              //     ["custrecord_zoku_source", "anyof", "355"],
-              //   ],
-              //   columns: [
-              //     search.createColumn({
-              //       name: "id",
-              //       sort: search.Sort.ASC,
-              //       label: "ID",
-              //     }),
-              //   ],
-              // });
-              // var productCodeMatches = zokuProductCodeSearch.runPaged().count;
-
-              // if (productCodeMatches > 0) {
-              //   if (productCodeMatches > lineQuantity) {
-              //     //If the productCodeMatces has more items than the current line quantity, DECREASE the custom record count
-              //   } else if (productCodeMatches < lineQuantity) {
-              //     //If the productCodeMatches has less items than the current line quantity, INCREASE the custom record count.
-              //     //Proceed with the creation of the custom record
-              //   } else if (productCodeMatches == lineQuantity) {
-              //     //If both the productCodeMatches and the current line quantity is equal. DO NOTHING.
-              //   }
-              // }
-
-              var invDetail = po.getCurrentSublistSubrecord({
-                sublistId: "item",
-                fieldId: "inventorydetail",
-              });
-              //Add the generated Product Codes to the subrecord
-              for (var y = 0; y < lineQuantity; y++) {
-                //Get the product information (Item ID, running number, product category)
-                var currentLineItem = po.getSublistValue({
+          //This means this would be a newly generated Product/Serial Code
+          if (poStatus == "1" || poStatus == "") {
+            console.log("Inside the NEW processing");
+            //Find the line where the items would have the Product Codes
+            for (var x = 0; x < lineCount; x++) {
+              //Get the index of the serialized item
+              itemLine = itemLineId.indexOf(
+                po.getSublistValue({
                   sublistId: "item",
-                  fieldId: "item",
+                  fieldId: "line",
                   line: x,
-                });
-                var productDetails = getProductDetails(currentLineItem);
-                console.log("productDetails", productDetails);
+                })
+              );
 
-                //Get the product code generation
-                var generatedCodes = productCodeGeneration(
-                  productDetails,
-                  currentLineItem
-                );
-
-                //Add the product codes to the inventory detail subrecord
-                invDetail.selectNewLine({ sublistId: "inventoryassignment" });
-                invDetail.setCurrentSublistValue({
-                  sublistId: "inventoryassignment",
-                  fieldId: "receiptinventorynumber",
-                  value: generatedCodes[0],
+              //-1 means that this line is not it. If it's greater than -1, there is a result, therefore this matches what we're looking for
+              if (itemLine > -1) {
+                //Get item line quantity
+                po.selectLine({ sublistId: "item", line: x });
+                lineQuantity = po.getCurrentSublistValue({
+                  sublistId: "item",
+                  fieldId: "quantity",
                 });
 
-                console.log("short code", generatedCodes[0]);
-                console.log("long code", generatedCodes[1]);
-                //Commit the subrecord
-                invDetail.commitLine({ sublistId: "inventoryassignment" });
-
-                //If there's no problem there, proceed with the creation of the custom record
-                createCustomRecord(
-                  currentLineItem,
-                  internalid,
-                  generatedCodes[0],
-                  generatedCodes[1],
-                  po.getValue({
-                    fieldId: "custbody_altas_anz_so_po_notes",
-                  }),
-                  "NOTES",
-                  po.getSublistValue({
+                var invDetail = po.getCurrentSublistSubrecord({
+                  sublistId: "item",
+                  fieldId: "inventorydetail",
+                });
+                //Add the generated Product Codes to the subrecord
+                for (var y = 0; y < lineQuantity; y++) {
+                  //Get the product information (Item ID, running number, product category)
+                  var currentLineItem = po.getSublistValue({
                     sublistId: "item",
-                    fieldId: "line",
+                    fieldId: "item",
                     line: x,
-                  })
-                );
+                  });
+                  var productDetails = getProductDetails(currentLineItem);
+                  console.log("productDetails", productDetails);
+
+                  //Get the product code generation
+                  var generatedCodes = productCodeGeneration(
+                    productDetails,
+                    currentLineItem
+                  );
+
+                  //Add the product codes to the inventory detail subrecord
+                  invDetail.selectNewLine({ sublistId: "inventoryassignment" });
+                  invDetail.setCurrentSublistValue({
+                    sublistId: "inventoryassignment",
+                    fieldId: "receiptinventorynumber",
+                    value: generatedCodes[0],
+                  });
+
+                  console.log("short code", generatedCodes[0]);
+                  console.log("long code", generatedCodes[1]);
+                  //Commit the subrecord
+                  invDetail.commitLine({ sublistId: "inventoryassignment" });
+
+                  //If there's no problem there, proceed with the creation of the custom record
+                  createCustomRecord(
+                    currentLineItem,
+                    internalid,
+                    generatedCodes[0],
+                    generatedCodes[1],
+                    po.getValue({
+                      fieldId: "custbody_altas_anz_so_po_notes",
+                    }),
+                    "NOTES",
+                    po.getSublistValue({
+                      sublistId: "item",
+                      fieldId: "line",
+                      line: x,
+                    })
+                  );
+                }
+                //Commit the item line
+                po.commitLine({ sublistId: "item" });
               }
-              //Commit the item line
-              po.commitLine({ sublistId: "item" });
+
+              //Reset the field values
+              itemLine = -1;
+
+              //Check script governance
+              var scriptObj = runtime.getCurrentScript();
+              console.log(
+                "Governance remaining",
+                scriptObj.getRemainingUsage()
+              );
             }
 
-            //Reset the field values
-            itemLine = -1;
+            //Save the record
+            po.setValue({
+              fieldId: "custbody_zoku_codegen_status",
+              value: "3",
+            }); //Set the status to '3', or 'Generated'
+            po.save();
           }
+          //This means it's incomplete. This requires additional processing before generating the product codes
+          else if (poStatus == "2") {
+            //Loop through the lines that are applicable for code generation
+            console.log("Inside the INCOMPLETE processing");
+            for (var x = 0; x < lineCount; x++) {
+              //Check if the line ID exists
+              itemLine = itemLineId.indexOf(
+                po.getSublistValue({
+                  sublistId: "item",
+                  fieldId: "line",
+                  line: x,
+                })
+              );
 
-          //Save the record
-          po.setValue({ fieldId: "custbody_zoku_codegen_status", value: "3" }); //Set the status to '3', or 'Generated'
-          po.save();
-          status = "successful";
+              //-1 means that this line is not it. If it's greater than -1, there is a result, therefore this matches what we're looking for
+              if (itemLine > -1) {
+                //Get item line quantity
+                po.selectLine({ sublistId: "item", line: x });
+                lineQuantity = po.getCurrentSublistValue({
+                  sublistId: "item",
+                  fieldId: "quantity",
+                });
+                var lineId = po.getCurrentSublistValue({
+                  sublistId: "item",
+                  fieldId: "line",
+                });
+                var itemId = po.getCurrentSublistValue({
+                  sublistId: "item",
+                  fieldId: "item",
+                });
+                var invDetail = po.getCurrentSublistSubrecord({
+                  sublistId: "item",
+                  fieldId: "inventorydetail",
+                });
+                var codeMatch = new Array();
+                // var subrecordCount;
+
+                //Create a search to look for codes (if any) that is linked to the item record
+                var codeMatchSearch = search.create({
+                  type: "customrecord_zoku_prodcode_custrec",
+                  filters: [
+                    ["custrecord_zoku_source", "anyof", internalid],
+                    "AND",
+                    ["custrecord_zoku_lineid", "is", lineId],
+                    "AND",
+                    ["custrecord_zoku_item", "anyof", itemId],
+                    "AND",
+                    ["isinactive", "is", "F"],
+                  ],
+                  columns: [
+                    // search.createColumn({ name: "id" }),
+                    // search.createColumn({ name: "custrecord_zoku_item" }),
+                    // search.createColumn({ name: "custrecord_zoku_lineid" }),
+                    search.createColumn({
+                      name: "custrecord_zoku_serialnumber",
+                    }),
+                  ],
+                });
+                var toAdd = codeMatchSearch.runPaged().count;
+                codeMatchSearch.run().each(function (result) {
+                  codeMatch.push(
+                    result.getValue({ name: "custrecord_zoku_serialnumber" })
+                  );
+                  return true;
+                });
+
+                // subrecordCount = invDetail.getLineCount({
+                //   sublistId: "inventoryassignment",
+                // });
+
+                //This would be how many we'd need to add. (Item quantity - Count of currently generated codes)
+                toAdd = lineQuantity - toAdd;
+
+                //Add the generated Product Codes to the subrecord
+                for (var y = 0; y < toAdd; y++) {
+                  //Get the product information (Item ID, running number, product category)
+                  var currentLineItem = po.getSublistValue({
+                    sublistId: "item",
+                    fieldId: "item",
+                    line: x,
+                  });
+                  var productDetails = getProductDetails(currentLineItem);
+                  console.log("productDetails", productDetails);
+
+                  //Get the product code generation
+                  var generatedCodes = productCodeGeneration(
+                    productDetails,
+                    currentLineItem
+                  );
+
+                  //Add the product codes to the inventory detail subrecord
+                  invDetail.selectNewLine({ sublistId: "inventoryassignment" });
+                  invDetail.setCurrentSublistValue({
+                    sublistId: "inventoryassignment",
+                    fieldId: "receiptinventorynumber",
+                    value: generatedCodes[0],
+                  });
+
+                  console.log("short code", generatedCodes[0]);
+                  console.log("long code", generatedCodes[1]);
+                  //Commit the subrecord
+                  invDetail.commitLine({ sublistId: "inventoryassignment" });
+
+                  //If there's no problem there, proceed with the creation of the custom record
+                  createCustomRecord(
+                    currentLineItem,
+                    internalid,
+                    generatedCodes[0],
+                    generatedCodes[1],
+                    po.getValue({
+                      fieldId: "custbody_altas_anz_so_po_notes",
+                    }),
+                    "NOTES",
+                    po.getSublistValue({
+                      sublistId: "item",
+                      fieldId: "line",
+                      line: x,
+                    })
+                  );
+                }
+                //Commit the item line
+                po.commitLine({ sublistId: "item" });
+              }
+              //Reset the field values
+              itemLine = -1;
+
+              var scriptObj = runtime.getCurrentScript();
+              console.log(
+                "Governance remaining",
+                scriptObj.getRemainingUsage()
+              );
+            }
+            //Save the record
+            po.setValue({
+              fieldId: "custbody_zoku_codegen_status",
+              value: "3",
+            }); //Set the status to '3', or 'Generated'
+            po.save();
+          }
         } else {
-          status = "noresult";
         }
       } else {
         //User cancelled
         console.log("User cancelled.", result);
-        status = "cancelled";
-      }
-
-      postProcessing(status);
-    }
-
-    /*
-      Returns a message to the user notifying them what happened to their button click, after the product code generation is selected
-
-      params:
-      result - result code to identify what happened
-
-      returns:
-      none. dialog response displayed.
-    */
-    function postProcessing(result) {
-      console.log("Post processing", result);
-      if (result == "noresult") {
-        dialog.alert({
-          title: "Alert",
-          message:
-            "There are no applicable items for processing the Product Code generation.",
-        });
-      } else if (result == "cancelled") {
-        dialog.alert({
-          title: "Notice",
-          message: "Cancelled operation. Product codes are not generated.",
-        });
-      } else if (result == "successful") {
-        dialog.alert({
-          title: "Record Saved",
-          message:
-            //"The Purchase Order has been successfully updated. Product Codes successfully generated.",
-            "SUCCESS! Reloading page.",
-        });
-        location.reload();
       }
     }
 
-    dialog.confirm(options).then(success);
+    //TODO
+    //dialog.confirm(options).then(success);
   }
 
   /*

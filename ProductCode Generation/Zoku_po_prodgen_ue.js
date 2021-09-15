@@ -379,107 +379,90 @@ define([
           }
         }
 
-        //If the status is not 'GENERATED', check if anything needs to be inactivated
-        // if (
-        //   poRec.getValue({
-        //     fieldId: "custbody_zoku_codegen_status",
-        //   }) != 3
-        // ) {
-        for (var z = 0; z < serialLineId.length; z++) {
-          log.debug("Inside the outer");
+        //Processes the deleted serial codes to be processed
+        //This runs regardless of all outcome checks to make sure that the data is always updated
+        //TODO: Use the serial code records for comparison instead of the item record
+        var forInactivation = new Array();
+        var serialSearch = search.create({
+          type: "customrecord_zoku_prodcode_custrec",
+          filters: [["custrecord_zoku_source", "anyof", poId]],
+          columns: [
+            search.createColumn({
+              name: "id",
+            }),
+            search.createColumn({
+              name: "custrecord_zoku_item",
+            }),
+            search.createColumn({
+              name: "custrecord_zoku_lineid",
+            }),
+            search.createColumn({
+              name: "custrecord_zoku_serialnumber",
+            }),
+          ],
+        });
+
+        //Store the search results for use on the comparison later
+        serialSearch.run().each(function (result) {
+          forInactivation.push({
+            internalid: result.getValue({ name: "id" }),
+            // itemid: result.getValue({ name: "custrecord_zoku_item" }),
+            // lineid: result.getValue({ name: "custrecord_zoku_lineid" }),
+            serialnum: result.getValue({
+              name: "custrecord_zoku_serialnumber",
+            }),
+          });
+          return true;
+        });
+        log.debug("forInactivation before", forInactivation);
+
+        if (forInactivation.length) {
           for (var x = 0; x < lineCount; x++) {
-            log.debug("Inside the inner");
-            if (
-              poRec.getSublistValue({
-                sublistId: "item",
-                fieldId: "line",
-                line: x,
-              }) == serialLineId[z]
-            ) {
-              log.debug("matched ID");
-              var serialSubrecord = poRec.getSublistSubrecord({
-                sublistId: "item",
-                fieldId: "inventorydetail",
-                line: x,
-              });
-              var serialItemId = poRec.getSublistValue({
-                sublistId: "item",
-                fieldId: "item",
-                line: x,
-              });
-              var serialSubrecordCount = serialSubrecord.getLineCount({
-                sublistId: "inventoryassignment",
-              });
+            //Get the inventory detail subrecord from the transaction line
+            var serialSubrecord = poRec.getSublistSubrecord({
+              sublistId: "item",
+              fieldId: "inventorydetail",
+              line: x,
+            });
+            var serialSubrecordCount = serialSubrecord.getLineCount({
+              sublistId: "inventoryassignment",
+            });
+            var serialNumber, existLocation;
 
-              //Count the productCodes generated vs. the current inventory details for the current item on the PO
-              var prodCodeSerialSearch = search.create({
-                type: "customrecord_zoku_prodcode_custrec",
-                filters: [
-                  ["custrecord_zoku_item", "anyof", serialItemId],
-                  "AND",
-                  ["custrecord_zoku_lineid", "is", serialLineId[z]],
-                ],
-                columns: [
-                  search.createColumn({ name: "id" }),
-                  search.createColumn({
-                    name: "custrecord_zoku_serialnumber",
-                  }),
-                ],
-              });
-              var prodCodeCount = prodCodeSerialSearch.runPaged().count;
+            //Check the subrecord serial numbers to match
+            for (var sub = 0; sub < serialSubrecordCount; sub++) {
+              serialNumber = serialSubrecord.getSublistValue(
+                "inventoryassignment",
+                "receiptinventorynumber",
+                sub
+              );
 
-              //If they don't match, check the codes if they match AND if there are more codes than the subrecord count.
-              if (
-                serialSubrecordCount != prodCodeCount &&
-                serialSubrecordCount < prodCodeCount
-              ) {
-                var placeholderIndex = 0;
-                var noResults = new Array();
+              //Check if the serial number exists
+              existLocation = forInactivation
+                .map(function (e) {
+                  return e.serialnum;
+                })
+                .indexOf(serialNumber);
 
-                //Store the IDs of the custom record. If any remain after processing, we know that there's no match, therefore we delete them
-                prodCodeSerialSearch.run().each(function (result) {
-                  noResults.push(result.getValue({ name: "id" }));
-                  return true;
-                });
-                log.debug("checker ids", noResults);
-
-                //Go through the subrecord one by one to match
-                for (var y = 0; y < serialSubrecordCount; y++) {
-                  //If there's a match, remove it from the array
-                  prodCodeSerialSearch.run().each(function (result) {
-                    if (
-                      serialSubrecord.getSublistValue(
-                        "inventoryassignment",
-                        "receiptinventorynumber",
-                        y
-                      ) ==
-                      result.getValue({ name: "custrecord_zoku_serialnumber" })
-                    ) {
-                      placeholderIndex = noResults.indexOf(
-                        result.getValue({ name: "id" })
-                      );
-                      noResults.splice(placeholderIndex, 1);
-                    }
-                    return true;
-                  });
-                }
-                log.debug("checker ids post-splice", noResults);
-
-                //Set the records to inactive
-                for (var y = 0; y < noResults.length; y++) {
-                  record.submitFields({
-                    type: "customrecord_zoku_prodcode_custrec",
-                    id: noResults[y],
-                    values: {
-                      isinactive: true,
-                    },
-                  });
-                }
+              //If it exists, remove the serial number referenced for deletion
+              if (existLocation > -1) {
+                forInactivation.splice(existLocation, 1);
               }
             }
           }
         }
-        //}
+        log.debug("forInactivation after", forInactivation);
+
+        //Any values that remains means that they have no match from the transation. These can be inactivated.
+        for (var x = 0; x < forInactivation.length; x++) {
+          record.submitFields({
+            type: "customrecord_zoku_prodcode_custrec",
+            id: forInactivation[x].internalid,
+            values: {
+              isinactive: true,
+            },
+          });
+        }
       }
     } catch (e) {
       log.error("Error occured on beforeSubmit", e);
