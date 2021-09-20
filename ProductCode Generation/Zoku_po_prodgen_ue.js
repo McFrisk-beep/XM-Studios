@@ -6,14 +6,13 @@
 define([
   "N/search",
   "N/transaction",
-  "N/runtime",
   "N/record",
-  "N/email",
   "N/ui/message",
+  "N/runtime",
 ], /**
  * @param {search} search
  * @param {transaction} transaction
- */ function (search, transaction, runtime, record, email, message) {
+ */ function (search, transaction, record, message, runtime) {
   /**
    * Function definition to be triggered before record is loaded.
    *
@@ -24,11 +23,13 @@ define([
    * @Since 2015.2
    */
   function beforeLoad(scriptContext) {
-    //TODO - Limit the button to show only where the showing of the button is applicable
     try {
-      if (scriptContext.type == scriptContext.UserEventType.VIEW) {
+      var poRec = scriptContext.newRecord;
+      if (
+        scriptContext.type == scriptContext.UserEventType.VIEW &&
+        poRec.getValue({ fieldId: "custbody_zoku_backend_status" }) != 2
+      ) {
         //Use the local script saved search
-        var poRec = scriptContext.newRecord;
         var transactionSearchObj = transactionSearch(
           poRec.getValue({ fieldId: "id" })
         );
@@ -86,6 +87,16 @@ define([
             });
           }
         }
+      } else if (
+        poRec.getValue({ fieldId: "custbody_zoku_backend_status" }) == 2
+      ) {
+        scriptContext.form.addPageInitMessage({
+          type: message.Type.INFORMATION,
+          title:
+            "(RECORD CANNOT BE MODIFIED) This transaction is scheduled for Back-end processing",
+          message:
+            "The Product Codes are being created for this transaction. Record is locked until completion. Please check back later once the script processing completes.",
+        });
       }
     } catch (e) {
       log.error("Error occured on beforeLoad", e);
@@ -116,6 +127,57 @@ define([
         var internalFlag = true;
         var lineCount = poRec.getLineCount({ sublistId: "item" });
         var serialLineId = new Array();
+
+        //Check if the item fits the criteria of the serial codes automatic generation
+        var invDetail;
+        var invDetailCount = 0;
+        var invDetailSerial = "";
+        var itemId = "";
+        log.debug("Initializing Check User-input");
+        for (var x = 0; x < lineCount; x++) {
+          //Select new line
+          itemId = poRec.getSublistValue({
+            sublistId: "item",
+            fieldId: "item",
+            line: x,
+          });
+          //If a search result comes back, this means that the item fits the description
+          if (checkSearch(itemId) > 0) {
+            //Check the subrecord to see if there's user-entered PO values
+            //We only check user-entered. The system should still allow missing values, as the system will generate later on
+            invDetail = poRec.getSublistSubrecord({
+              sublistId: "item",
+              fieldId: "inventorydetail",
+              line: x,
+            });
+            invDetailCount = invDetail.getLineCount({
+              sublistId: "inventoryassignment",
+            });
+            if (invDetailCount > 0) {
+              for (var y = 0; y < invDetailCount; y++) {
+                invDetailSerial = ""; //Clear this to remove the last value
+                invDetailSerial = invDetail.getSublistValue({
+                  sublistId: "inventoryassignment",
+                  fieldId: "receiptinventorynumber",
+                  line: y,
+                });
+                if (invDetailSerial) {
+                  //If no results are returned, this is user-entered. Flag this.
+                  if (confirmSerialCodes(poId, itemId, invDetailSerial) == 0) {
+                    log.debug("Found an invalid serial code!", invDetailSerial);
+                    invDetail.removeLine({
+                      sublistId: "inventoryassignment",
+                      line: y,
+                      ignoreRecalc: true,
+                    });
+                    y--;
+                    invDetailCount--;
+                  }
+                }
+              }
+            }
+          }
+        }
 
         //Before anything else, check if there's a new item(s) added which fit the criteria
         var oldPoRec = record.load({
@@ -381,7 +443,6 @@ define([
 
         //Processes the deleted serial codes to be processed
         //This runs regardless of all outcome checks to make sure that the data is always updated
-        //TODO: Use the serial code records for comparison instead of the item record
         var forInactivation = new Array();
         var serialSearch = search.create({
           type: "customrecord_zoku_prodcode_custrec",
@@ -463,10 +524,32 @@ define([
             },
           });
         }
+      } else if (scriptContext.type == scriptContext.UserEventType.DELETE) {
+        //Delete the associated serial codes if the user deletes the PO as well
+        var poId = poRec.getValue({ fieldId: "id" });
+        var serialCodeDelete = search.create({
+          type: "customrecord_zoku_prodcode_custrec",
+          filters: [
+            ["custrecord_zoku_source", "anyof", poId],
+            "AND",
+            ["isinactive", "any", ""],
+          ],
+          columns: [search.createColumn({ name: "id" })],
+        });
+        serialCodeDelete.run().each(function (result) {
+          record.delete({
+            type: "customrecord_zoku_prodcode_custrec",
+            id: result.getValue({ name: "id" }),
+          });
+          return true;
+        });
       }
     } catch (e) {
       log.error("Error occured on beforeSubmit", e);
     }
+
+    var scriptObj = runtime.getCurrentScript();
+    log.debug("Remaining governance units: " + scriptObj.getRemainingUsage());
   }
 
   function checkSearch(itemId) {
@@ -504,7 +587,22 @@ define([
     });
   }
 
-  function processInactives() {}
+  //Check if the serial code does not exist on the item subrecord
+  function confirmSerialCodes(poId, itemId, serialNum) {
+    var serialCodeSearch = search.create({
+      type: "customrecord_zoku_prodcode_custrec",
+      filters: [
+        ["custrecord_zoku_source", "anyof", poId],
+        "AND",
+        ["custrecord_zoku_item", "anyof", itemId],
+        "AND",
+        ["custrecord_zoku_serialnumber", "is", serialNum],
+      ],
+      columns: [search.createColumn({ name: "id" })],
+    });
+
+    return serialCodeSearch.runPaged().count;
+  }
 
   return {
     beforeLoad: beforeLoad,

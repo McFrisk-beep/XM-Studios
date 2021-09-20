@@ -6,14 +6,15 @@
 define([
   "N/record",
   "N/search",
-  "N/ui/dialog",
   "./sweetalert2.all.min.js",
   "N/runtime",
+  "N/url",
+  "N/https",
 ], /**
  * @param {record} record
  * @param {search} search
  * @param {dialog} dialog
- */ function (record, search, dialog, Swal, runtime) {
+ */ function (record, search, Swal, runtime, nUrl, https) {
   /**
    * Function to be executed after page is initialized.
    *
@@ -56,19 +57,61 @@ define([
     //Display loading dialog
     function loadingDialog(result) {
       if (result.isConfirmed) {
-        Swal.fire({
-          title: "Processing Serial Codes!",
-          // icon: "info",
-          html:
-            "<head><meta name='viewport' content='width=device-width, initial-scale=1'><style>.loader{border:16px solid #f3f3f3;border-radius:50%;border-top:16px solid #3498db;width:60px;height:60px;-webkit-animation:spin 2s linear infinite;animation:spin 2s linear infinite;margin-left:auto;margin-right:auto}@-webkit-keyframes spin{0%{-webkit-transform:rotate(0deg)}100%{-webkit-transform:rotate(360deg)}}@keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}</style></head><body><div class='loader'></div></body><br/><br/><b>Do not close this window!</br>" +
-            "Please wait. . .",
-          allowOutsideClick: false,
-          allowEscapeKey: false,
-          showCancelButton: false,
-          showConfirmButton: false,
-          timer: 100,
-          // timerProgressBar: true,
-        }).then(proceedProcessing);
+        //Check how many would need to be processed. If it's more than 5, pass it to the Map/Reduce script
+        var countApplicable = checkApplicableProducts(internalid);
+        if (countApplicable > 5) {
+          //TODO: Set the back-end status of the record to 'Processing' (ID 2)
+          record.submitFields({
+            type: record.Type.PURCHASE_ORDER,
+            id: internalid,
+            values: {
+              custbody_zoku_backend_status: 2,
+            },
+            options: {
+              ignoreMandatoryFields: true,
+            },
+          });
+
+          //Since n/task is not supported for client scripts, we delegate the trigger to a Suitelet instead
+          var suiteletURL = nUrl.resolveScript({
+            scriptId: "customscript_zoku_prodcodgen_sl",
+            deploymentId: "customdeploy_zoku_sl_deployment",
+          });
+          //Add the parameter used for the Map/Reduce script
+          suiteletURL += "&internalid=" + internalid;
+
+          console.log("Suitelet trigger parameters", suiteletURL);
+
+          //Call the Suitelet
+          var response = https.get({
+            url: suiteletURL,
+          });
+          console.log("Suitelet Response", response);
+
+          Swal.fire({
+            title: "Job sent to the back-end!",
+            icon: "info",
+            html: "<p>The system determined that there are a lot of items to be processed.</p><br/><br/><p>This task is delegated to NetSuite&apos;s Back-end script for processing.</p><br/><br/><p>The record will not allow modifications so long as the <b>Code Generation Status</b> is set to <b>Processing</b>.</p><br/><br/><p>Please check back later on this transaction record.</p>",
+          }).then(onDismiss);
+
+          function onDismiss() {
+            location.reload();
+          }
+        } else {
+          Swal.fire({
+            title: "Processing Serial Codes!",
+            // icon: "info",
+            html:
+              "<head><meta name='viewport' content='width=device-width, initial-scale=1'><style>.loader{border:16px solid #f3f3f3;border-radius:50%;border-top:16px solid #3498db;width:60px;height:60px;-webkit-animation:spin 2s linear infinite;animation:spin 2s linear infinite;margin-left:auto;margin-right:auto}@-webkit-keyframes spin{0%{-webkit-transform:rotate(0deg)}100%{-webkit-transform:rotate(360deg)}}@keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}</style></head><body><div class='loader'></div></body><br/><br/><b>Do not close this window!</br>" +
+              "Please wait. . .",
+            allowOutsideClick: false,
+            allowEscapeKey: false,
+            showCancelButton: false,
+            showConfirmButton: false,
+            timer: 100,
+            // timerProgressBar: true,
+          }).then(proceedProcessing);
+        }
       } else {
         Swal.fire(
           "Cancelled!",
@@ -96,9 +139,6 @@ define([
       }
     }
 
-    //TODO
-    //Manage the script governance for this record. Can only handle probably 30-lines max?
-    //Need to have a back-up plan like a map/reduce for longer records
     function processCodes(result) {
       Swal.showLoading();
       //function success(result) {
@@ -214,7 +254,6 @@ define([
                     po.getValue({
                       fieldId: "custbody_altas_anz_so_po_notes",
                     }),
-                    "NOTES",
                     po.getSublistValue({
                       sublistId: "item",
                       fieldId: "line",
@@ -356,7 +395,6 @@ define([
                     po.getValue({
                       fieldId: "custbody_altas_anz_so_po_notes",
                     }),
-                    "NOTES",
                     po.getSublistValue({
                       sublistId: "item",
                       fieldId: "line",
@@ -391,7 +429,6 @@ define([
       }
     }
 
-    //TODO
     //dialog.confirm(options).then(success);
   }
 
@@ -507,6 +544,34 @@ define([
   }
 
   /*
+    See how many items will need to be processed.
+
+    params:
+    internalid - the internal id of the PO record
+
+    returns:
+    int - the number of the search results applicable for processing
+  */
+  function checkApplicableProducts(internalid) {
+    var transactionSearchObj = search.create({
+      type: "transaction",
+      filters: [
+        ["internalid", "anyof", internalid],
+        "AND",
+        ["mainline", "is", "F"],
+        "AND",
+        ["item.type", "anyof", "InvtPart"],
+        "AND",
+        ["item.isserialitem", "is", "T"],
+        "AND",
+        ["formulatext: {item.custitem_zoku_prodcodetype}", "isnotempty", ""],
+      ],
+      columns: [search.createColumn({ name: "line", label: "Line ID" })],
+    });
+    return transactionSearchObj.runPaged().count;
+  }
+
+  /*
     Creates the custom record storing the generated fields from the item subrecord
 
     params:
@@ -516,6 +581,9 @@ define([
     longCode - the product number
     fieldNotes - notes from the purchase order
     member - the member type of the customer
+
+    returns:
+    null
   */
   function createCustomRecord(
     currentLineItem,
@@ -523,7 +591,6 @@ define([
     shortCode,
     longCode,
     fieldNotes,
-    member,
     lineId
   ) {
     var custRecord = record.create({
@@ -548,10 +615,6 @@ define([
     custRecord.setValue({
       fieldId: "custrecord_zoku_notes",
       value: fieldNotes,
-    });
-    custRecord.setValue({
-      fieldId: "custrecord_zoku_member",
-      value: member,
     });
     custRecord.setValue({
       fieldId: "custrecord_zoku_lineid",

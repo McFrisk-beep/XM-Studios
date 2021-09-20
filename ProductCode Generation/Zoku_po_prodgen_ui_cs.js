@@ -19,75 +19,30 @@ define(["N/runtime", "N/search", "N/ui/dialog"], /**
    */
   function saveRecord(scriptContext) {
     try {
-      if (scriptContext.mode !== "edit") {
+      log.debug("Context", scriptContext.currentRecord.id);
+      //Check if the record is in 'edit' mode. Can do this by checking if there's an ID
+      if (scriptContext.currentRecord.id) {
         var poRec = scriptContext.currentRecord;
         var poId = poRec.getValue({ fieldId: "id" });
 
         //Check if there are connected Product codes generated for this transaction
-        if (transactionSearch(poId)) {
+        if (
+          poRec.getValue({ fieldId: "custbody_zoku_backend_status" }) == "2"
+        ) {
+          alert(
+            "The system is still processing this transaction for the Product Code Generation, and therefore cannot be edited.\n\nPlease wait until the system finishes processing before modifying the record."
+          );
+          return false;
+        } else if (transactionSearch(poId)) {
           var confirmDialog = confirm(
             "The system has detected that there are potential Product Codes generated for this transaction record.\n\nShould you wish to proceed, any removed Serial Codes will also inactivate the associated Product Codes.\n\nProceed saving the record anyways?"
           );
-          if (confirmDialog == true) {
-            //Check if the item fits the criteria of the serial codes automatic generation
-            var lineCount = poRec.getLineCount({ sublistId: "item" });
-            var invDetail;
-            var invDetailCount = 0;
-            var invDetailSerial = "";
-            var itemId = "";
-            for (var x = 0; x < lineCount; x++) {
-              //Select new line
-              poRec.selectLine({ sublistId: "item", line: x });
-
-              itemId = poRec.getCurrentSublistValue({
-                sublistId: "item",
-                fieldId: "item",
-              });
-
-              //If a search result comes back, this means that the item fits the description
-              if (checkSearch(itemId) > 0) {
-                //Check the subrecord to see if there's user-entered PO values
-                //We only check user-entered. The system should still allow missing values, as the system will generate later on
-                invDetail = poRec.getCurrentSublistSubrecord({
-                  sublistId: "item",
-                  fieldId: "inventorydetail",
-                });
-                invDetailCount = invDetail.getLineCount({
-                  sublistId: "inventoryassignment",
-                });
-                for (var y = 0; y < invDetailCount; y++) {
-                  //Select the subrecord sublist
-                  invDetail.selectLine({
-                    sublistId: "inventoryassignment",
-                    line: y,
-                  });
-
-                  invDetailSerial = invDetail.getCurrentSublistValue({
-                    sublistId: "inventoryassignment",
-                    fieldId: "receiptinventorynumber",
-                  });
-
-                  //If no results are returned, this is user-entered. Flag this.
-                  if (confirmSerialCodes(poId, itemId, invDetailSerial) == 0) {
-                    alert(
-                      "The system detected a User-entered Serial Code.\nPlease remove the serial code to proceed saving the transaction record."
-                    );
-                    //Don't let the record save.
-                    return false;
-                  }
-                }
-              }
-            }
-
-            return true;
-          } else {
+          if (confirmDialog != true) {
             return false;
           }
-        } else {
-          //Passed initial checks, so the system can proceed with the changes
-          return true;
         }
       }
+      return true;
     } catch (e) {
       log.error("Error occured", e);
     }
@@ -111,41 +66,6 @@ define(["N/runtime", "N/search", "N/ui/dialog"], /**
       columns: [search.createColumn({ name: "line" })],
     });
     return tranSearch.runPaged().count;
-  }
-
-  //Check if the serial code does not exist on the item subrecord
-  function confirmSerialCodes(poId, itemId, serialNum) {
-    var serialCodeSearch = search.create({
-      type: "customrecord_zoku_prodcode_custrec",
-      filters: [
-        ["custrecord_zoku_source", "anyof", poId],
-        "AND",
-        ["custrecord_zoku_item", "anyof", itemId],
-        "AND",
-        ["custrecord_zoku_serialnumber", "is", serialNum],
-      ],
-      columns: [search.createColumn({ name: "id" })],
-    });
-
-    return serialCodeSearch.runPaged().count;
-  }
-
-  //Check if the item record fits the criteria for checking
-  function checkSearch(itemId) {
-    var serialItemSearch = search.create({
-      type: "serializedinventoryitem",
-      filters: [
-        ["internalid", "anyof", itemId],
-        "AND",
-        ["type", "anyof", "InvtPart"],
-        "AND",
-        ["isserialitem", "is", "T"],
-        "AND",
-        ["custitem_zoku_prodcodetype", "noneof", "@NONE@"],
-      ],
-      columns: [search.createColumn({ name: "internalid" })],
-    });
-    return serialItemSearch.runPaged().count;
   }
 
   return {
