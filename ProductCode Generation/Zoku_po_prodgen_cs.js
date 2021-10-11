@@ -59,8 +59,10 @@ define([
       if (result.isConfirmed) {
         //Check how many would need to be processed. If it's more than 5, pass it to the Map/Reduce script
         var countApplicable = checkApplicableProducts(internalid);
-        if (countApplicable > 5) {
-          //TODO: Set the back-end status of the record to 'Processing' (ID 2)
+        var totalQuantity = checkApplicableProductsQuantity(internalid);
+        console.log("Total item quantity", totalQuantity);
+        if (countApplicable > 5 || totalQuantity > 25) {
+          //Set the back-end status of the record to 'Processing' (ID 2)
           record.submitFields({
             type: record.Type.PURCHASE_ORDER,
             id: internalid,
@@ -460,20 +462,30 @@ define([
 
     params:
     runningNumber - the running number of the item being referenced
+    productType - the type of the serialized item if it is Retail or Sample
 
     returns:
-    pad.substring - the text that would be stored for the item
+    formattedSuffix - the text that would be stored for the item
   */
   function formatRunningSuffix(runningNumber, productType) {
     var str = "" + runningNumber;
     var pad = "0000";
+    var formattedSuffix;
 
-    //TODO - The 'R' is removed after 999. Needs fixing in the future. Will leave it for now as is,
+    //'Sample' Item type has an additional letter prefix, so the pad is limited to 3-digits.
     if (productType == "2") {
-      pad = "R000";
+      pad = "000";
     }
 
-    return pad.substring(0, pad.length - str.length) + str;
+    //Format the suffixes
+    formattedSuffix = pad.substring(0, pad.length - str.length) + str;
+
+    //Once everything is done, add the 'R' suffix for the 'Sample' Item type
+    if (productType == "2") {
+      formattedSuffix = "R" + formattedSuffix;
+    }
+
+    return formattedSuffix;
   }
 
   /*
@@ -569,6 +581,39 @@ define([
       columns: [search.createColumn({ name: "line", label: "Line ID" })],
     });
     return transactionSearchObj.runPaged().count;
+  }
+
+  /*
+    See how many items will need to be processed.
+
+    params:
+    internalid - the internal id of the PO record
+
+    returns:
+    int - the number of the search results applicable for processing
+  */
+  function checkApplicableProductsQuantity(internalid) {
+    var transactionSearchObj = search.create({
+      type: "transaction",
+      filters: [
+        ["internalidnumber", "equalto", internalid],
+        "AND",
+        ["mainline", "is", "F"],
+        "AND",
+        ["item.type", "anyof", "InvtPart"],
+        "AND",
+        ["item.isserialitem", "is", "T"],
+        "AND",
+        ["formulatext: {item.custitem_zoku_prodcodetype}", "isnotempty", ""],
+      ],
+      columns: [search.createColumn({ name: "quantity", label: "Quantity" })],
+    });
+    var totalCount = 0;
+    transactionSearchObj.run().each(function (result) {
+      totalCount += Math.abs(Number(result.getValue({ name: "quantity" })));
+      return true;
+    });
+    return totalCount;
   }
 
   /*

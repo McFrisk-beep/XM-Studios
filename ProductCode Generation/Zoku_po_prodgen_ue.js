@@ -95,7 +95,9 @@ define([
           title:
             "(RECORD CANNOT BE MODIFIED) This transaction is scheduled for Back-end processing",
           message:
-            "The Product Codes are being created for this transaction. Record is locked until completion. Please check back later once the script processing completes.",
+            "The Product Codes are being created for this transaction. Record is locked until completion. Please check back later once the script processing completes.\n" +
+            "Please click <a href='https://6961610-sb1.app.netsuite.com/app/common/scripting/mapreducescriptstatus.nl?daterange=TODAY&scripttype=400&primarykey=&jobstatefilterselect=&datemodi=WITHIN&date=TODAY&showall=F'>here</a> " +
+            "for the status of the script.",
         });
       }
     } catch (e) {

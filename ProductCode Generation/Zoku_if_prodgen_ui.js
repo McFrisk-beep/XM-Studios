@@ -158,10 +158,11 @@ define(["N/search", "N/runtime", "N/record", "N/email"], function (
                 );
                 log.debug("No initial serial number found.");
                 log.debug("issueinventorynumber", issueInventoryNumber);
-              }
 
-              //Another layer of search needs to happen first before we get the actual serial number
-              var serialNumber = inventoryNumberSearch(issueInventoryNumber);
+                //Another layer of search needs to happen first before we get the actual serial number
+                log.debug("issueInventoryNumber", issueInventoryNumber);
+                serialNumber = inventoryNumberSearch(issueInventoryNumber);
+              }
 
               var serialRecordId = serialCodeSearch(itemId, serialNumber);
               log.debug("serialRecordId", serialRecordId);

@@ -326,6 +326,16 @@ define(["N/file", "N/record", "N/runtime", "N/search"], /**
   }
 
   /**
+   * Executes when the reduce entry point is triggered and applies to each group.
+   *
+   * @param {ReduceSummary} context - Data collection containing the groups to process through the reduce stage
+   * @since 2015.1
+   */
+  function reduce(context) {
+    //TODO: Add the reduce function for actual record saving. Further prevents script limits
+  }
+
+  /**
    * Executes when the summarize entry point is triggered and applies to the result set.
    *
    * @param {Summary} summary - Holds statistics regarding the execution of a map/reduce script
@@ -359,24 +369,34 @@ define(["N/file", "N/record", "N/runtime", "N/search"], /**
   }
 
   /*
-      Generates the Running suffix to be returned for part of the productCode generation
-  
-      params:
-      runningNumber - the running number of the item being referenced
-  
-      returns:
-      pad.substring - the text that would be stored for the item
-    */
+    Generates the Running suffix to be returned for part of the productCode generation
+
+    params:
+    runningNumber - the running number of the item being referenced
+    productType - the type of the serialized item if it is Retail or Sample
+
+    returns:
+    formattedSuffix - the text that would be stored for the item
+  */
   function formatRunningSuffix(runningNumber, productType) {
     var str = "" + runningNumber;
     var pad = "0000";
+    var formattedSuffix;
 
-    //TODO - The 'R' is removed after 999. Needs fixing in the future. Will leave it for now as is,
+    //'Sample' Item type has an additional letter prefix, so the pad is limited to 3-digits.
     if (productType == "2") {
-      pad = "R000";
+      pad = "000";
     }
 
-    return pad.substring(0, pad.length - str.length) + str;
+    //Format the suffixes
+    formattedSuffix = pad.substring(0, pad.length - str.length) + str;
+
+    //Once everything is done, add the 'R' suffix for the 'Sample' Item type
+    if (productType == "2") {
+      formattedSuffix = "R" + formattedSuffix;
+    }
+
+    return formattedSuffix;
   }
 
   /*
@@ -530,6 +550,7 @@ define(["N/file", "N/record", "N/runtime", "N/search"], /**
   return {
     getInputData: getInputData,
     map: map,
+    reduce: reduce,
     summarize: summarize,
   };
 });

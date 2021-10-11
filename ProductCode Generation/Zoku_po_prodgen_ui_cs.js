@@ -35,7 +35,7 @@ define(["N/runtime", "N/search", "N/ui/dialog"], /**
           return false;
         } else if (transactionSearch(poId)) {
           var confirmDialog = confirm(
-            "The system has detected that there are potential Product Codes generated for this transaction record.\n\nShould you wish to proceed, any removed Serial Codes will also inactivate the associated Product Codes.\n\nProceed saving the record anyways?"
+            "The system has detected that there are potential Product Codes generated for this transaction record.\n\nShould you wish to proceed, any removed Serial Codes will also inactivate the associated Product Codes.\n\nUser-input Serial Codes for applicable Item records will also be automatically removed.\n\nProceed saving the record anyways?"
           );
           if (confirmDialog != true) {
             return false;
