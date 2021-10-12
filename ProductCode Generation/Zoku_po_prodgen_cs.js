@@ -61,7 +61,7 @@ define([
         var countApplicable = checkApplicableProducts(internalid);
         var totalQuantity = checkApplicableProductsQuantity(internalid);
         console.log("Total item quantity", totalQuantity);
-        if (countApplicable > 5 || totalQuantity > 25) {
+        if (countApplicable > 5 || totalQuantity > 10) {
           //Set the back-end status of the record to 'Processing' (ID 2)
           record.submitFields({
             type: record.Type.PURCHASE_ORDER,

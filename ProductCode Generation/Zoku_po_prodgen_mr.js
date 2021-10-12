@@ -69,6 +69,9 @@ define(["N/file", "N/record", "N/runtime", "N/search"], /**
 
   function map(context) {
     try {
+      //Placeholder for passing the data to the "reduce" stage
+      var customRecordDetails = new Array();
+
       //The internal ID of the PO record from the parameter
       var scriptObj = runtime.getCurrentScript();
       var internalid = scriptObj.getParameter({
@@ -92,109 +95,20 @@ define(["N/file", "N/record", "N/runtime", "N/search"], /**
       var lineQuantity = 0;
       var itemLine = -1;
 
+      log.debug("poStatus", poStatus);
       //This means this would be a newly generated Product/Serial Code
       if (poStatus == "1" || poStatus == "") {
-        log.debug("Inside the NEW processing");
+        log.debug("Inside the NEW processing", lineCount);
         //Find the line where the items would have the Product Codes
         for (var x = 0; x < lineCount; x++) {
+          log.audit("current line new", x);
           //Get the index of the item to match if it's same with the result of the savedsearch from getInputData
           itemLine = po.getSublistValue({
             sublistId: "item",
             fieldId: "line",
             line: x,
           });
-
-          //-1 means that this line is not it. If it's greater than -1, there is a result, therefore this matches what we're looking for
-          if (itemLine == lineId) {
-            //Get item line quantity
-            po.selectLine({ sublistId: "item", line: x });
-            lineQuantity = po.getCurrentSublistValue({
-              sublistId: "item",
-              fieldId: "quantity",
-            });
-
-            var invDetail = po.getCurrentSublistSubrecord({
-              sublistId: "item",
-              fieldId: "inventorydetail",
-            });
-            //Add the generated Product Codes to the subrecord
-            for (var y = 0; y < lineQuantity; y++) {
-              //Get the product information (Item ID, running number, product category)
-              var currentLineItem = po.getSublistValue({
-                sublistId: "item",
-                fieldId: "item",
-                line: x,
-              });
-              var productDetails = getProductDetails(currentLineItem);
-              log.debug("productDetails", productDetails);
-
-              //Get the product code generation
-              var generatedCodes = productCodeGeneration(
-                productDetails,
-                currentLineItem
-              );
-
-              //Add the product codes to the inventory detail subrecord
-              invDetail.selectNewLine({ sublistId: "inventoryassignment" });
-              invDetail.setCurrentSublistValue({
-                sublistId: "inventoryassignment",
-                fieldId: "receiptinventorynumber",
-                value: generatedCodes[0],
-              });
-
-              log.debug("short code", generatedCodes[0]);
-              log.debug("long code", generatedCodes[1]);
-              //Commit the subrecord
-              invDetail.commitLine({ sublistId: "inventoryassignment" });
-
-              //If there's no problem there, proceed with the creation of the custom record
-              createCustomRecord(
-                currentLineItem,
-                internalid,
-                generatedCodes[0],
-                generatedCodes[1],
-                po.getValue({
-                  fieldId: "custbody_altas_anz_so_po_notes",
-                }),
-                po.getSublistValue({
-                  sublistId: "item",
-                  fieldId: "line",
-                  line: x,
-                })
-              );
-            }
-            //Commit the item line
-            po.commitLine({ sublistId: "item" });
-          }
-
-          //Reset the field values
-          itemLine = -1;
-        }
-
-        //Save the record
-        //Set the status to '3', or 'Generated'
-        po.setValue({
-          fieldId: "custbody_zoku_codegen_status",
-          value: "3",
-        });
-        //Set the status to 'Done Processing'
-        po.setValue({
-          fieldId: "custbody_zoku_backend_status",
-          value: "3",
-        });
-        po.save();
-      }
-      //This means it's incomplete. This requires additional processing before generating the product codes
-      else if (poStatus == "2") {
-        //Loop through the lines that are applicable for code generation
-        log.debug("Inside the INCOMPLETE processing");
-        for (var x = 0; x < lineCount; x++) {
-          //Get the index of the item to match if it's same with the result of the savedsearch from getInputData
-          itemLine = po.getSublistValue({
-            sublistId: "item",
-            fieldId: "line",
-            line: x,
-          });
+          log.audit("itemLine | lineId", itemLine + " | " + lineId);
 
           //-1 means that this line is not it. If it's greater than -1, there is a result, therefore this matches what we're looking for
           if (itemLine == lineId) {
@@ -216,8 +130,130 @@ define(["N/file", "N/record", "N/runtime", "N/search"], /**
               sublistId: "item",
               fieldId: "inventorydetail",
             });
-            var codeMatch = new Array();
-            // var subrecordCount;
+            var productDetails = getProductDetails(itemId);
+            // log.debug("productDetails", productDetails);
+            var finalRunningNumber = 0;
+
+            //Add the generated Product Codes to the subrecord
+            for (var y = 0; y < lineQuantity; y++) {
+              //Get the product code generation
+              var generatedCodes = productCodeGeneration(
+                Number(productDetails.custitem_zoku_runningnumber) + y,
+                productDetails["custitem_zoku_prodcodetype"][0]["value"],
+                productDetails.itemid
+              );
+
+              //Add the product codes to the inventory detail subrecord
+              invDetail.selectNewLine({ sublistId: "inventoryassignment" });
+              invDetail.setCurrentSublistValue({
+                sublistId: "inventoryassignment",
+                fieldId: "receiptinventorynumber",
+                value: generatedCodes[0],
+              });
+
+              // log.debug(
+              //   "short code | long code",
+              //   generatedCodes[0] + " | " + generatedCodes[1]
+              // );
+              //Commit the subrecord
+              invDetail.commitLine({ sublistId: "inventoryassignment" });
+
+              //If there's no problem there, proceed with the creation of the custom record
+              // createCustomRecord(
+              //   itemId,
+              //   internalid,
+              //   generatedCodes[0],
+              //   generatedCodes[1],
+              //   po.getValue({
+              //     fieldId: "custbody_altas_anz_so_po_notes",
+              //   }),
+              //   lineId
+              // );
+              customRecordDetails.push([
+                customRecordDetails.length,
+                itemId,
+                internalid,
+                generatedCodes[0],
+                generatedCodes[1],
+                po.getValue({ fieldId: "custbody_altas_anz_so_po_notes" }),
+                lineId,
+              ]);
+
+              //Count the final running number before saving the updated serialized item
+              finalRunningNumber =
+                Number(productDetails.custitem_zoku_runningnumber) + y + 1;
+            }
+            //Commit the item line
+            po.commitLine({ sublistId: "item" });
+
+            //Submit the serialized item updates
+            log.debug("runningNumber", finalRunningNumber);
+            record.submitFields({
+              type: record.Type.SERIALIZED_INVENTORY_ITEM,
+              id: itemId,
+              values: {
+                custitem_zoku_runningnumber: finalRunningNumber,
+              },
+              options: {
+                ignoreMandatoryFields: true,
+              },
+            });
+          }
+
+          //Reset the field values
+          itemLine = -1;
+        }
+
+        //Save the record
+        //Set the status to '3', or 'Generated'
+        po.setValue({
+          fieldId: "custbody_zoku_codegen_status",
+          value: "6",
+        });
+        //Set the status to 'Done Processing'
+        po.setValue({
+          fieldId: "custbody_zoku_backend_status",
+          value: "3",
+        });
+        po.save();
+      }
+      //This means it's incomplete. This requires additional processing before generating the product codes
+      else if (poStatus == "2") {
+        //Loop through the lines that are applicable for code generation
+        log.debug("Inside the INCOMPLETE processing", lineCount);
+        for (var x = 0; x < lineCount; x++) {
+          log.audit("current line incomplete", x);
+          //Get the index of the item to match if it's same with the result of the savedsearch from getInputData
+          itemLine = po.getSublistValue({
+            sublistId: "item",
+            fieldId: "line",
+            line: x,
+          });
+          log.audit("itemLine | lineId", itemLine + " | " + lineId);
+
+          //-1 means that this line is not it. If it's greater than -1, there is a result, therefore this matches what we're looking for
+          if (itemLine == lineId) {
+            //Get item line quantity
+            po.selectLine({ sublistId: "item", line: x });
+            lineQuantity = po.getCurrentSublistValue({
+              sublistId: "item",
+              fieldId: "quantity",
+            });
+            var lineId = po.getCurrentSublistValue({
+              sublistId: "item",
+              fieldId: "line",
+            });
+            var itemId = po.getCurrentSublistValue({
+              sublistId: "item",
+              fieldId: "item",
+            });
+            var invDetail = po.getCurrentSublistSubrecord({
+              sublistId: "item",
+              fieldId: "inventorydetail",
+            });
+            var productDetails = getProductDetails(itemId);
+            log.debug("productDetails", productDetails);
+            var finalRunningNumber = 0;
 
             //Create a search to look for codes (if any) that is linked to the item record
             var codeMatchSearch = search.create({
@@ -232,44 +268,22 @@ define(["N/file", "N/record", "N/runtime", "N/search"], /**
                 ["isinactive", "is", "F"],
               ],
               columns: [
-                // search.createColumn({ name: "id" }),
-                // search.createColumn({ name: "custrecord_zoku_item" }),
-                // search.createColumn({ name: "custrecord_zoku_lineid" }),
                 search.createColumn({
                   name: "custrecord_zoku_serialnumber",
                 }),
               ],
             });
             var toAdd = codeMatchSearch.runPaged().count;
-            codeMatchSearch.run().each(function (result) {
-              codeMatch.push(
-                result.getValue({ name: "custrecord_zoku_serialnumber" })
-              );
-              return true;
-            });
-
-            // subrecordCount = invDetail.getLineCount({
-            //   sublistId: "inventoryassignment",
-            // });
 
             //This would be how many we'd need to add. (Item quantity - Count of currently generated codes)
             toAdd = lineQuantity - toAdd;
 
             //Add the generated Product Codes to the subrecord
             for (var y = 0; y < toAdd; y++) {
-              //Get the product information (Item ID, running number, product category)
-              var currentLineItem = po.getSublistValue({
-                sublistId: "item",
-                fieldId: "item",
-                line: x,
-              });
-              var productDetails = getProductDetails(currentLineItem);
-              log.debug("productDetails", productDetails);
-
-              //Get the product code generation
               var generatedCodes = productCodeGeneration(
-                productDetails,
-                currentLineItem
+                Number(productDetails.custitem_zoku_runningnumber) + y,
+                productDetails["custitem_zoku_prodcodetype"][0]["value"],
+                productDetails.itemid
               );
 
               //Add the product codes to the inventory detail subrecord
@@ -280,29 +294,53 @@ define(["N/file", "N/record", "N/runtime", "N/search"], /**
                 value: generatedCodes[0],
               });
 
-              log.debug("short code", generatedCodes[0]);
-              log.debug("long code", generatedCodes[1]);
+              // log.debug(
+              //   "short code | long code",
+              //   generatedCodes[0] + " | " + generatedCodes[1]
+              // );
               //Commit the subrecord
               invDetail.commitLine({ sublistId: "inventoryassignment" });
 
               //If there's no problem there, proceed with the creation of the custom record
-              createCustomRecord(
-                currentLineItem,
+              // createCustomRecord(
+              //   itemId,
+              //   internalid,
+              //   generatedCodes[0],
+              //   generatedCodes[1],
+              //   po.getValue({
+              //     fieldId: "custbody_altas_anz_so_po_notes",
+              //   }),
+              //   lineId
+              // );
+              customRecordDetails.push([
+                customRecordDetails.length,
+                itemId,
                 internalid,
                 generatedCodes[0],
                 generatedCodes[1],
-                po.getValue({
-                  fieldId: "custbody_altas_anz_so_po_notes",
-                }),
-                po.getSublistValue({
-                  sublistId: "item",
-                  fieldId: "line",
-                  line: x,
-                })
-              );
+                po.getValue({ fieldId: "custbody_altas_anz_so_po_notes" }),
+                lineId,
+              ]);
+
+              //Count the final running number before saving the updated serialized item
+              finalRunningNumber =
+                Number(productDetails.custitem_zoku_runningnumber) + y + 1;
             }
             //Commit the item line
             po.commitLine({ sublistId: "item" });
+
+            //Submit the serialized item updates
+            log.debug("runningNumber", finalRunningNumber);
+            record.submitFields({
+              type: record.Type.SERIALIZED_INVENTORY_ITEM,
+              id: itemId,
+              values: {
+                custitem_zoku_runningnumber: finalRunningNumber,
+              },
+              options: {
+                ignoreMandatoryFields: true,
+              },
+            });
           }
           //Reset the field values
           itemLine = -1;
@@ -311,7 +349,7 @@ define(["N/file", "N/record", "N/runtime", "N/search"], /**
         //Set the status to '3', or 'Generated'
         po.setValue({
           fieldId: "custbody_zoku_codegen_status",
-          value: "3",
+          value: "6",
         });
         //Set the status to 'Done Processing'
         po.setValue({
@@ -319,6 +357,15 @@ define(["N/file", "N/record", "N/runtime", "N/search"], /**
           value: "3",
         });
         po.save();
+
+        log.debug("save record completed", customRecordDetails.length);
+      }
+      //Loop the current list of the custom records to be passed for creation on the "Reduce" part of the script
+      for (var ctr = 0; ctr < customRecordDetails.length; ctr++) {
+        context.write({
+          key: customRecordDetails[ctr][0],
+          value: customRecordDetails[ctr],
+        });
       }
     } catch (e) {
       log.error("Error in MAP", e);
@@ -333,6 +380,22 @@ define(["N/file", "N/record", "N/runtime", "N/search"], /**
    */
   function reduce(context) {
     //TODO: Add the reduce function for actual record saving. Further prevents script limits
+    var dataValues = context.values.map(JSON.parse);
+    // log.debug("REDUCE - dataValues", dataValues[0][4]);
+
+    createCustomRecord(
+      dataValues[0][1],
+      dataValues[0][2],
+      dataValues[0][3],
+      dataValues[0][4],
+      dataValues[0][5],
+      dataValues[0][6]
+    );
+
+    context.write({
+      key: dataValues[0][1],
+      value: dataValues[0][2],
+    });
   }
 
   /**
@@ -341,8 +404,8 @@ define(["N/file", "N/record", "N/runtime", "N/search"], /**
    * @param {Summary} summary - Holds statistics regarding the execution of a map/reduce script
    * @since 2015.1
    */
-  function summarize(summary) {
-    log.audit("Summary Data", summary);
+  function summarize(context) {
+    log.audit("Summary Data", context);
   }
 
   /*
@@ -409,15 +472,15 @@ define(["N/file", "N/record", "N/runtime", "N/search"], /**
       returns:
       productCode - text
     */
-  function productCodeGeneration(productDetails, itemId) {
+  function productCodeGeneration(runningNumber, itemProductType, itemId) {
+    //function productCodeGeneration(productDetails, itemId) {
     var shortProductCode = "";
     var longProductCode = "";
-    var productRunning = productDetails.custitem_zoku_runningnumber;
-    var productType = productDetails["custitem_zoku_prodcodetype"][0]["value"]; //Either 1 = 'Retail' or 2 = 'Sample'
-    log.debug("productType", productType);
+    var productRunning = runningNumber; //productDetails.custitem_zoku_runningnumber;
+    var productType = itemProductType; //productDetails["custitem_zoku_prodcodetype"][0]["value"]; //Either 1 = 'Retail' or 2 = 'Sample'
 
-    shortProductCode += productDetails.itemid;
-    longProductCode += productDetails.itemid;
+    shortProductCode += itemId;
+    longProductCode += itemId;
     longProductCode +=
       "-" + randomTextGeneration() + "-" + randomTextGeneration();
 
@@ -433,17 +496,17 @@ define(["N/file", "N/record", "N/runtime", "N/search"], /**
       longProductCode += "-" + formatRunningSuffix(productRunning, productType);
     }
 
-    //Save the item record with the new running value
-    record.submitFields({
-      type: record.Type.SERIALIZED_INVENTORY_ITEM,
-      id: itemId,
-      values: {
-        custitem_zoku_runningnumber: productRunning,
-      },
-      options: {
-        ignoreMandatoryFields: true,
-      },
-    });
+    //Save the item record with the new running value - TODO
+    // record.submitFields({
+    //   type: record.Type.SERIALIZED_INVENTORY_ITEM,
+    //   id: itemId,
+    //   values: {
+    //     custitem_zoku_runningnumber: productRunning,
+    //   },
+    //   options: {
+    //     ignoreMandatoryFields: true,
+    //   },
+    // });
 
     //Return the short product code
     return [shortProductCode, longProductCode];
@@ -544,7 +607,7 @@ define(["N/file", "N/record", "N/runtime", "N/search"], /**
       value: lineId,
     });
     custRecord.save();
-    log.debug("Custom record has been saved!");
+    // log.debug("Custom record has been saved!");
   }
 
   return {
