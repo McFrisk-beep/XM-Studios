@@ -3,97 +3,7 @@
  * @NScriptType UserEventScript
  * @NModuleScope SameAccount
  */
-define(["N/search", "N/runtime", "N/record", "N/email"], function (
-  search,
-  runtime,
-  record,
-  email
-) {
-  /**
-   * Function definition to be triggered before record is loaded.
-   *
-   * @param {Object} scriptContext
-   * @param {Record} scriptContext.newRecord - New record
-   * @param {Record} scriptContext.oldRecord - Old record
-   * @param {string} scriptContext.type - Trigger type
-   * @Since 2015.2
-   */
-  function beforeSubmit(scriptContext) {
-    var itemFulfillment = scriptContext.newRecord;
-    if (
-      scriptContext.type == scriptContext.UserEventType.DELETE &&
-      itemFulfillment.getValue({ fieldId: "shipstatus" }) == "C"
-    ) {
-      try {
-        //Check if any assigned serial records were already applied
-        log.debug(
-          "Triggered delete",
-          itemFulfillment.getValue({ fieldId: "id" })
-        );
-        var itemCount = itemFulfillment.getLineCount({ sublistId: "item" });
-        for (var x = 0; x < itemCount; x++) {
-          var itemId = itemFulfillment.getSublistValue({
-            sublistId: "item",
-            fieldId: "item",
-            line: x,
-          });
-          log.debug("item ID", itemId);
-
-          //If the item is valid for checking serial codes
-          if (checkSearch(itemId)) {
-            log.debug("passed checkSearch");
-            var serialSubrecord = itemFulfillment.getSublistSubrecord({
-              sublistId: "item",
-              fieldId: "inventorydetail",
-              line: x,
-            });
-            log.debug("serialSubrecord", serialSubrecord);
-            var serialSubrecordCount = serialSubrecord.getLineCount({
-              sublistId: "inventoryassignment",
-            });
-            log.debug("subrecord count", serialSubrecordCount);
-            //Check the subrecord serial numbers to match
-            for (var sub = 0; sub < serialSubrecordCount; sub++) {
-              // var serialNumber = serialSubrecord.getSublistValue(
-              //   "inventoryassignment",
-              //   "issueinventorynumber_display",
-              //   sub
-              // );
-              // log.debug("inside serialNumber", serialNumber);
-
-              //We need to use this first as the "issueinventorynumber_display" is not always being passed especially if users
-              //will enter the serial number on the item fulfillment stage
-              var issueInventoryNumber = serialSubrecord.getSublistValue(
-                "inventoryassignment",
-                "issueinventorynumber",
-                sub
-              );
-              log.debug("issueinventorynumber", issueInventoryNumber);
-
-              //Another layer of search needs to happen first before we get the actual serial number
-              var serialNumber = inventoryNumberSearch(issueInventoryNumber);
-
-              var serialRecordId = serialCodeSearch(itemId, serialNumber);
-              log.debug("serialRecordId", serialRecordId);
-              if (serialRecordId) {
-                record.submitFields({
-                  type: "customrecord_zoku_prodcode_custrec",
-                  id: serialRecordId,
-                  values: {
-                    custrecord_zoku_fulfilled: false,
-                  },
-                });
-                log.debug("Serial Record unset successfully!", serialRecordId);
-              }
-            }
-          }
-        }
-      } catch (e) {
-        log.error("Error occured on beforeSubmit", e);
-      }
-    }
-  }
-
+define(["N/search", "N/record", "N/task"], function (search, record, task) {
   /**
    * Function definition to be triggered before record is loaded.
    *
@@ -106,9 +16,6 @@ define(["N/search", "N/runtime", "N/record", "N/email"], function (
   function afterSubmit(scriptContext) {
     try {
       var itemFulfillment = scriptContext.newRecord;
-      //   var recordId = itemFulfillment.getValue({
-      //     fieldId: "id",
-      //   });
       var itemCount = itemFulfillment.getLineCount({ sublistId: "item" });
 
       //C = Shipped
@@ -116,71 +23,97 @@ define(["N/search", "N/runtime", "N/record", "N/email"], function (
         itemFulfillment.getValue({ fieldId: "shipstatus" }) == "C" &&
         scriptContext.type != scriptContext.UserEventType.DELETE
       ) {
-        log.debug("inside the shipped status");
-        for (var x = 0; x < itemCount; x++) {
-          var itemId = itemFulfillment.getSublistValue({
-            sublistId: "item",
-            fieldId: "item",
-            line: x,
+        var totalQuantity = checkApplicableProductsQuantity(
+          itemFulfillment.getValue({ fieldId: "id" })
+        );
+        log.debug(
+          "inside the shipped status",
+          "itemCount - " +
+            itemCount +
+            " | " +
+            "totalQuantity - " +
+            totalQuantity
+        );
+
+        //Check if the item count reaches the threshold. If it does, pass the operation to the map/reduce
+        if (itemCount > 5 || totalQuantity > 30) {
+          var mapReduceTask = task.create({
+            taskType: task.TaskType.MAP_REDUCE,
+            scriptId: "customscript_zoku_if_prodcodgen_mr",
+            params: {
+              custscript_itemfulfillment_id: itemFulfillment.getValue({
+                fieldId: "id",
+              }),
+            },
           });
-          log.debug("item ID", itemId);
-          //If the item is valid for checking serial codes
-          if (checkSearch(itemId)) {
-            log.debug("passed checkSearch");
-            var serialSubrecord = itemFulfillment.getSublistSubrecord({
+          mapReduceTask.submit();
+          log.debug("Passed operation to the Map Reduce script");
+        } else {
+          for (var x = 0; x < itemCount; x++) {
+            var itemId = itemFulfillment.getSublistValue({
               sublistId: "item",
-              fieldId: "inventorydetail",
+              fieldId: "item",
               line: x,
             });
-            log.debug("serialSubrecord", serialSubrecord);
-            var serialSubrecordCount = serialSubrecord.getLineCount({
-              sublistId: "inventoryassignment",
-            });
-            log.debug("subrecord count", serialSubrecordCount);
-            //Check the subrecord serial numbers to match
-            for (var sub = 0; sub < serialSubrecordCount; sub++) {
-              var issueInventoryNumber;
-              var serialNumber = serialSubrecord.getSublistValue(
-                "inventoryassignment",
-                "issueinventorynumber_display",
-                sub
-              );
-              log.debug("inside serialNumber", serialNumber);
-
-              //If there's a serialnumber value, skip the issueinventorynumber
-              if (!serialNumber) {
-                //Otherwise, we need to use this first as the "issueinventorynumber_display" is not always being passed especially if users
-                //will enter the serial number on the item fulfillment stage
-                issueInventoryNumber = serialSubrecord.getSublistValue(
+            log.debug("item ID", itemId);
+            //If the item is valid for checking serial codes
+            if (checkSearch(itemId)) {
+              log.debug("passed checkSearch");
+              var serialSubrecord = itemFulfillment.getSublistSubrecord({
+                sublistId: "item",
+                fieldId: "inventorydetail",
+                line: x,
+              });
+              log.debug("serialSubrecord", serialSubrecord);
+              var serialSubrecordCount = serialSubrecord.getLineCount({
+                sublistId: "inventoryassignment",
+              });
+              log.debug("subrecord count", serialSubrecordCount);
+              //Check the subrecord serial numbers to match
+              for (var sub = 0; sub < serialSubrecordCount; sub++) {
+                var issueInventoryNumber;
+                var serialNumber = serialSubrecord.getSublistValue(
                   "inventoryassignment",
-                  "issueinventorynumber",
+                  "issueinventorynumber_display",
                   sub
                 );
-                log.debug("No initial serial number found.");
-                log.debug("issueinventorynumber", issueInventoryNumber);
+                log.debug("inside serialNumber", serialNumber);
 
-                //Another layer of search needs to happen first before we get the actual serial number
-                log.debug("issueInventoryNumber", issueInventoryNumber);
-                serialNumber = inventoryNumberSearch(issueInventoryNumber);
-              }
+                //If there's a serialnumber value, skip the issueinventorynumber
+                if (!serialNumber) {
+                  //Otherwise, we need to use this first as the "issueinventorynumber_display" is not always being passed especially if users
+                  //will enter the serial number on the item fulfillment stage
+                  issueInventoryNumber = serialSubrecord.getSublistValue(
+                    "inventoryassignment",
+                    "issueinventorynumber",
+                    sub
+                  );
+                  log.debug("No initial serial number found.");
+                  log.debug("issueinventorynumber", issueInventoryNumber);
 
-              var serialRecordId = serialCodeSearch(itemId, serialNumber);
-              log.debug("serialRecordId", serialRecordId);
-              if (serialRecordId) {
-                record.submitFields({
-                  type: "customrecord_zoku_prodcode_custrec",
-                  id: serialRecordId,
-                  values: {
-                    custrecord_zoku_fulfilled: true,
-                  },
-                });
-                log.debug(
-                  "Serial Record updated successfully!",
-                  serialRecordId
-                );
+                  //Another layer of search needs to happen first before we get the actual serial number
+                  log.debug("issueInventoryNumber", issueInventoryNumber);
+                  serialNumber = inventoryNumberSearch(issueInventoryNumber);
+                }
+
+                var serialRecordId = serialCodeSearch(itemId, serialNumber);
+                log.debug("serialRecordId", serialRecordId);
+                if (serialRecordId) {
+                  record.submitFields({
+                    type: "customrecord_zoku_prodcode_custrec",
+                    id: serialRecordId,
+                    values: {
+                      custrecord_zoku_fulfilled: true,
+                    },
+                  });
+                  log.debug(
+                    "Serial Record updated successfully!",
+                    serialRecordId
+                  );
+                }
+                //Clear the value for the next iteration
+                issueInventoryNumber = "";
               }
-              //Clear the value for the next iteration
-              issueInventoryNumber = "";
             }
           }
         }
@@ -251,8 +184,41 @@ define(["N/search", "N/runtime", "N/record", "N/email"], function (
     return serialItemSearch.runPaged().count;
   }
 
+  /*
+    See how many items will need to be processed.
+    Mostly for determining if the process would need to be passed to a Map/Reduce script
+
+    params:
+    internalId - the internal id of the PO record
+
+    returns:
+    int - the number of the search results applicable for processing
+  */
+  function checkApplicableProductsQuantity(internalId) {
+    var itemfulfillmentSearchObj = search.create({
+      type: "itemfulfillment",
+      filters: [
+        ["internalid", "anyof", internalId],
+        "AND",
+        ["type", "anyof", "ItemShip"],
+        "AND",
+        ["formulanumeric: MOD({linesequencenumber},3)", "equalto", "0"],
+        "AND",
+        ["item.type", "anyof", "InvtPart"],
+        "AND",
+        ["item.isserialitem", "is", "T"],
+      ],
+      columns: [search.createColumn({ name: "quantity", label: "Quantity" })],
+    });
+    var totalCount = 0;
+    itemfulfillmentSearchObj.run().each(function (result) {
+      totalCount += Math.abs(Number(result.getValue({ name: "quantity" })));
+      return true;
+    });
+    return totalCount;
+  }
+
   return {
-    beforeSubmit: beforeSubmit,
     afterSubmit: afterSubmit,
   };
 });

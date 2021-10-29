@@ -218,7 +218,7 @@ define(["N/file", "N/record", "N/runtime", "N/search"], /**
         po.save();
       }
       //This means it's incomplete. This requires additional processing before generating the product codes
-      else if (poStatus == "2") {
+      else if (poStatus == "2" || poStatus == "6") {
         //Loop through the lines that are applicable for code generation
         log.debug("Inside the INCOMPLETE processing", lineCount);
         for (var x = 0; x < lineCount; x++) {
