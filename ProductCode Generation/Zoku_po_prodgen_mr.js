@@ -80,7 +80,7 @@ define(["N/file", "N/record", "N/runtime", "N/search"], /**
 
       //Log the result of the search
       var lineId = JSON.parse(context.value);
-      log.debug("MAP - lineId", lineId);
+      // log.debug("MAP - lineId", lineId);
 
       //Load the transaction record
       var po = record.load({
@@ -95,10 +95,10 @@ define(["N/file", "N/record", "N/runtime", "N/search"], /**
       var lineQuantity = 0;
       var itemLine = -1;
 
-      log.debug("poStatus", poStatus);
+      // log.debug("poStatus", poStatus);
       //This means this would be a newly generated Product/Serial Code
       if (poStatus == "1" || poStatus == "") {
-        log.debug("Inside the NEW processing", lineCount);
+        // log.debug("Inside the NEW processing", lineCount);
         //Find the line where the items would have the Product Codes
         for (var x = 0; x < lineCount; x++) {
           log.audit("current line new", x);
@@ -188,16 +188,17 @@ define(["N/file", "N/record", "N/runtime", "N/search"], /**
 
             //Submit the serialized item updates
             log.debug("runningNumber", finalRunningNumber);
-            record.submitFields({
-              type: record.Type.SERIALIZED_INVENTORY_ITEM,
-              id: itemId,
-              values: {
-                custitem_zoku_runningnumber: finalRunningNumber,
-              },
-              options: {
-                ignoreMandatoryFields: true,
-              },
-            });
+            if (finalRunningNumber)
+              record.submitFields({
+                type: record.Type.SERIALIZED_INVENTORY_ITEM,
+                id: itemId,
+                values: {
+                  custitem_zoku_runningnumber: finalRunningNumber,
+                },
+                options: {
+                  ignoreMandatoryFields: true,
+                },
+              });
           }
 
           //Reset the field values
@@ -220,7 +221,7 @@ define(["N/file", "N/record", "N/runtime", "N/search"], /**
       //This means it's incomplete. This requires additional processing before generating the product codes
       else if (poStatus == "2" || poStatus == "6") {
         //Loop through the lines that are applicable for code generation
-        log.debug("Inside the INCOMPLETE processing", lineCount);
+        // log.debug("Inside the INCOMPLETE processing", lineCount);
         for (var x = 0; x < lineCount; x++) {
           log.audit("current line incomplete", x);
           //Get the index of the item to match if it's same with the result of the savedsearch from getInputData
@@ -252,7 +253,7 @@ define(["N/file", "N/record", "N/runtime", "N/search"], /**
               fieldId: "inventorydetail",
             });
             var productDetails = getProductDetails(itemId);
-            log.debug("productDetails", productDetails);
+            // log.debug("productDetails", productDetails);
             var finalRunningNumber = 0;
 
             //Create a search to look for codes (if any) that is linked to the item record
@@ -331,16 +332,17 @@ define(["N/file", "N/record", "N/runtime", "N/search"], /**
 
             //Submit the serialized item updates
             log.debug("runningNumber", finalRunningNumber);
-            record.submitFields({
-              type: record.Type.SERIALIZED_INVENTORY_ITEM,
-              id: itemId,
-              values: {
-                custitem_zoku_runningnumber: finalRunningNumber,
-              },
-              options: {
-                ignoreMandatoryFields: true,
-              },
-            });
+            if (finalRunningNumber)
+              record.submitFields({
+                type: record.Type.SERIALIZED_INVENTORY_ITEM,
+                id: itemId,
+                values: {
+                  custitem_zoku_runningnumber: finalRunningNumber,
+                },
+                options: {
+                  ignoreMandatoryFields: true,
+                },
+              });
           }
           //Reset the field values
           itemLine = -1;
@@ -382,20 +384,24 @@ define(["N/file", "N/record", "N/runtime", "N/search"], /**
     //TODO: Add the reduce function for actual record saving. Further prevents script limits
     var dataValues = context.values.map(JSON.parse);
     // log.debug("REDUCE - dataValues", dataValues[0][4]);
+    log.debug("REDUCE - length", dataValues.length);
 
-    createCustomRecord(
-      dataValues[0][1],
-      dataValues[0][2],
-      dataValues[0][3],
-      dataValues[0][4],
-      dataValues[0][5],
-      dataValues[0][6]
-    );
+    for (var x = 0; x < dataValues.length; x++) {
+      log.debug("REDUCE - data", dataValues[x]);
+      createCustomRecord(
+        dataValues[x][1],
+        dataValues[x][2],
+        dataValues[x][3],
+        dataValues[x][4],
+        dataValues[x][5],
+        dataValues[x][6]
+      );
+    }
 
-    context.write({
-      key: dataValues[0][1],
-      value: dataValues[0][2],
-    });
+    // context.write({
+    //   key: dataValues[0][1],
+    //   value: dataValues[0][2],
+    // });
   }
 
   /**
@@ -595,7 +601,7 @@ define(["N/file", "N/record", "N/runtime", "N/search"], /**
       value: shortCode,
     });
     custRecord.setValue({
-      fieldId: "custrecord_zoku_prodcode",
+      fieldId: "name",
       value: longCode,
     });
     custRecord.setValue({

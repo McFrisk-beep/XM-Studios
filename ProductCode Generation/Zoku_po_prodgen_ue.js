@@ -336,7 +336,7 @@ define([
                     name: "custrecord_zoku_serialnumber",
                   }),
                   search.createColumn({
-                    name: "custrecord_zoku_prodcode",
+                    name: "name",
                   }),
                   search.createColumn({
                     name: "custrecord_zoku_registered",

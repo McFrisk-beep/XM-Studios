@@ -654,7 +654,7 @@ define([
       value: shortCode,
     });
     custRecord.setValue({
-      fieldId: "custrecord_zoku_prodcode",
+      fieldId: "name",
       value: longCode,
     });
     custRecord.setValue({
